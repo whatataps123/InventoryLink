@@ -1,0 +1,10 @@
+# Ignore our secret keys!
+.env
+
+# Ignore the heavy virtual environment toolbox
+venv/
+env/
+
+# Ignore Python's automatic cache files
+__pycache__/
+*.pyc
