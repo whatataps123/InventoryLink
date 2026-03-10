@@ -1,35 +1,74 @@
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ConversationHandler
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ConversationHandler, AIORateLimiter
 from config import TELEGRAM_TOKEN
 from handlers import (
     start_command, handle_ui_clicks, 
     add_manual_start, receive_category, receive_item_name, receive_quantity, receive_price,
-    CATEGORY, ITEM_NAME, QUANTITY, PRICE
+    record_sale_start, receive_sale_item, receive_sale_quantity,
+    edit_item_start, receive_edit_search, receive_edit_field, receive_edit_value, 
+    delete_item_start, receive_delete_search, receive_delete_confirm, 
+    CATEGORY, ITEM_NAME, QUANTITY, PRICE, SALE_ITEM, SALE_QUANTITY, 
+    EDIT_SEARCH, EDIT_CHOOSE_FIELD, EDIT_NEW_VALUE, DELETE_SEARCH, DELETE_CONFIRM 
 )
 
 if __name__ == '__main__':
-    print("🚀 Starting InventoryLink Modular Bot...")
+    print("🚀 Starting Secured InventoryLink Bot...")
     
-    app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+    # ==========================================
+    # 🛡️ THE SECURITY UPDATE
+    # We add AIORateLimiter() to our ApplicationBuilder!
+    # ==========================================
+    app = ApplicationBuilder().token(TELEGRAM_TOKEN).rate_limiter(AIORateLimiter()).build()
     
-    # 1. BUILD THE WIZARD
+    # 1. ADD WIZARD
     add_item_wizard = ConversationHandler(
-        # How to start the wizard:
         entry_points=[MessageHandler(filters.Text(["⌨️ Add Manual (Type)"]), add_manual_start)],
-        # The steps:
         states={
             CATEGORY: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_category)],
             ITEM_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_item_name)],
             QUANTITY: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_quantity)],
             PRICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_price)],
         },
-        # How to forcefully break out if something goes wrong
-        fallbacks=[MessageHandler(filters.Text(["❌ Cancel"]), receive_price)]
+        fallbacks=[MessageHandler(filters.Text(["❌ Cancel"]), receive_price)] 
     )
 
-    # 2. ATTACH EVERYTHING TO THE ENGINE (Wizard first!)
+    # 2. SALE WIZARD
+    record_sale_wizard = ConversationHandler(
+        entry_points=[MessageHandler(filters.Text(["🛒 Record a Sale"]), record_sale_start)],
+        states={
+            SALE_ITEM: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_sale_item)],
+            SALE_QUANTITY: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_sale_quantity)],
+        },
+        fallbacks=[MessageHandler(filters.Text(["❌ Cancel"]), receive_sale_quantity)]
+    )
+
+    # 3. EDIT WIZARD
+    edit_item_wizard = ConversationHandler(
+        entry_points=[MessageHandler(filters.Text(["✏️ Edit Item"]), edit_item_start)],
+        states={
+            EDIT_SEARCH: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_edit_search)],
+            EDIT_CHOOSE_FIELD: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_edit_field)],
+            EDIT_NEW_VALUE: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_edit_value)],
+        },
+        fallbacks=[MessageHandler(filters.Text(["❌ Cancel"]), receive_edit_value)]
+    )
+
+    # 4. DELETE WIZARD
+    delete_item_wizard = ConversationHandler(
+        entry_points=[MessageHandler(filters.Text(["🗑️ Delete Item"]), delete_item_start)],
+        states={
+            DELETE_SEARCH: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_delete_search)],
+            DELETE_CONFIRM: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_delete_confirm)],
+        },
+        fallbacks=[MessageHandler(filters.Text(["❌ Cancel"]), receive_delete_confirm)]
+    )
+
+    # ATTACH EVERYTHING
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(add_item_wizard)
+    app.add_handler(record_sale_wizard)
+    app.add_handler(edit_item_wizard)
+    app.add_handler(delete_item_wizard)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_ui_clicks))
     
-    print("🤖 Bot is online! Open Telegram to test it.")
+    print("🤖 Bot is securely online! Open Telegram to test it.")
     app.run_polling()
