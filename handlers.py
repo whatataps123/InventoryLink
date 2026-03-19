@@ -7,7 +7,7 @@ from menus import get_main_menu, get_inventory_menu, get_sales_menu, get_utang_m
 # -----------------------------------
 # THE WIZARD STATES (Now with Edit and Delete!)
 # -----------------------------------
-CATEGORY, ITEM_NAME, QUANTITY, PRICE, SALE_ITEM, SALE_QUANTITY, EDIT_SEARCH, EDIT_CHOOSE_FIELD, EDIT_NEW_VALUE, DELETE_SEARCH, DELETE_CONFIRM = range(11)
+CATEGORY, ITEM_NAME, QUANTITY, PRICE, SALE_ITEM, SALE_QUANTITY, EDIT_SEARCH, EDIT_CHOOSE_FIELD, EDIT_NEW_VALUE, DELETE_SEARCH, DELETE_CONFIRM, RENAME_STORE = range(12)
 
 # ==========================================
 # 1. THE MANUAL ADD WIZARD
@@ -362,11 +362,31 @@ async def receive_delete_confirm(update: Update, context: ContextTypes.DEFAULT_T
 # ==========================================
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if MAINTENANCE_MODE:
-        await update.message.reply_text("🛠️ System Maintenance NIGGER. Please check back later!")
+        await update.message.reply_text("🛠️ System Maintenance. Please check back later!")
         return 
+    
+    user_id = update.message.from_user.id
     user_name = update.message.from_user.first_name
-    await update.message.reply_text(f"👋 Welcome to InventoryLink, {user_name}!\n\nMain Menu:", reply_markup=get_main_menu())
 
+    try:
+        # 1. Check if this user is already registered in our existing table
+        response = supabase.table("stores").select("*").eq("telegram_id", user_id).execute()
+        
+        # 2. If the list comes back empty, let's register them!
+        if not response.data:
+            supabase.table("stores").insert({
+                "telegram_id": user_id,
+                "owner_name": user_name,
+                "store_name": f"{user_name}'s Sari-Sari Store" 
+            }).execute()
+            print(f"🎉 New store registered: {user_name}'s Sari-Sari Store")
+
+        # 3. Proceed to welcome them as usual
+        await update.message.reply_text(f"👋 Welcome to InventoryLink, {user_name}!\n\nMain Menu:", reply_markup=get_main_menu())
+    
+    except Exception as e:
+        print(f"Registration Error: {e}")
+        await update.message.reply_text("⚠️ Server Error during registration.", reply_markup=get_main_menu())
 async def handle_ui_clicks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if MAINTENANCE_MODE:
         await update.message.reply_text("🛠️ Maintenance mode.")
@@ -418,3 +438,33 @@ async def handle_ui_clicks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("🏠 Returning to Main Menu...", reply_markup=get_main_menu())
     else:
         await update.message.reply_text("🤔 Please use the menu buttons.")
+
+
+# ==========================================
+# 6. RENAME STORE WIZARD
+# ==========================================
+async def rename_store_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "🏷️ **Rename Your Store**\n\nWhat would you like to call your store?",
+        reply_markup=ReplyKeyboardMarkup([["❌ Cancel"]], resize_keyboard=True)
+    )
+    return RENAME_STORE
+
+async def receive_new_store_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    if text == "❌ Cancel":
+        await update.message.reply_text("❌ Cancelled.", reply_markup=get_main_menu())
+        return ConversationHandler.END
+
+    user_id = update.message.from_user.id
+    
+    try:
+        # Update the store name in our Supabase database
+        supabase.table("stores").update({"store_name": text}).eq("telegram_id", user_id).execute()
+        
+        await update.message.reply_text(f"✅ **Success!**\nYour store is now named: **{text}**", reply_markup=get_main_menu())
+    except Exception as e:
+        print(f"Rename Error: {e}")
+        await update.message.reply_text("⚠️ Server Error while renaming.", reply_markup=get_main_menu())
+        
+    return ConversationHandler.END
