@@ -7,7 +7,8 @@ from handlers import (
     edit_item_start, receive_edit_search, receive_edit_field, receive_edit_value, 
     delete_item_start, receive_delete_search, receive_delete_confirm, 
     CATEGORY, ITEM_NAME, QUANTITY, PRICE, SALE_ITEM, SALE_QUANTITY, 
-    EDIT_SEARCH, EDIT_CHOOSE_FIELD, EDIT_NEW_VALUE, DELETE_SEARCH, DELETE_CONFIRM 
+    EDIT_SEARCH, EDIT_CHOOSE_FIELD, EDIT_NEW_VALUE, DELETE_SEARCH, DELETE_CONFIRM ,
+    rename_store_start, receive_new_store_name, RENAME_STORE
 )
 
 if __name__ == '__main__':
@@ -62,12 +63,22 @@ if __name__ == '__main__':
         fallbacks=[MessageHandler(filters.Text(["❌ Cancel"]), receive_delete_confirm)]
     )
 
+    # 5. RENAME STORE WIZARD
+    rename_store_wizard = ConversationHandler(
+        entry_points=[MessageHandler(filters.Text(["🏷️ Rename Store"]), rename_store_start)],
+        states={
+            RENAME_STORE: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_new_store_name)],
+        },
+        fallbacks=[MessageHandler(filters.Text(["❌ Cancel"]), receive_new_store_name)]
+    )
+
     # ATTACH EVERYTHING
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(add_item_wizard)
     app.add_handler(record_sale_wizard)
     app.add_handler(edit_item_wizard)
     app.add_handler(delete_item_wizard)
+    app.add_handler(rename_store_wizard)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_ui_clicks))
     
     print("🤖 Bot is securely online! Open Telegram to test it.")
