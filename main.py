@@ -6,9 +6,11 @@ from handlers import (
     record_sale_start, receive_sale_item, receive_sale_quantity,
     edit_item_start, receive_edit_search, receive_edit_field, receive_edit_value, 
     delete_item_start, receive_delete_search, receive_delete_confirm, 
+    rename_store_start, receive_new_store_name,
+    ai_add_start, receive_ai_photo, confirm_ai_add, # <-- NEW AI IMPORTS
     CATEGORY, ITEM_NAME, QUANTITY, PRICE, SALE_ITEM, SALE_QUANTITY, 
-    EDIT_SEARCH, EDIT_CHOOSE_FIELD, EDIT_NEW_VALUE, DELETE_SEARCH, DELETE_CONFIRM ,
-    rename_store_start, receive_new_store_name, RENAME_STORE
+    EDIT_SEARCH, EDIT_CHOOSE_FIELD, EDIT_NEW_VALUE, DELETE_SEARCH, DELETE_CONFIRM, RENAME_STORE,
+    AI_PHOTO, AI_CONFIRM # <-- NEW AI STATES
 )
 
 if __name__ == '__main__':
@@ -72,6 +74,17 @@ if __name__ == '__main__':
         fallbacks=[MessageHandler(filters.Text(["❌ Cancel"]), receive_new_store_name)]
     )
 
+    # 6. AI SCANNER WIZARD
+    ai_scanner_wizard = ConversationHandler(
+        entry_points=[MessageHandler(filters.Text(["📸 Add via AI (Photo)"]), ai_add_start)],
+        states={
+            # Notice we use filters.PHOTO here so it explicitly waits for an image!
+            AI_PHOTO: [MessageHandler(filters.PHOTO | filters.TEXT & ~filters.COMMAND, receive_ai_photo)],
+            AI_CONFIRM: [MessageHandler(filters.TEXT & ~filters.COMMAND, confirm_ai_add)],
+        },
+        fallbacks=[MessageHandler(filters.Text(["❌ Cancel"]), confirm_ai_add)]
+    )
+
     # ATTACH EVERYTHING
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(add_item_wizard)
@@ -79,6 +92,7 @@ if __name__ == '__main__':
     app.add_handler(edit_item_wizard)
     app.add_handler(delete_item_wizard)
     app.add_handler(rename_store_wizard)
+    app.add_handler(ai_scanner_wizard)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_ui_clicks))
     
     print("🤖 Bot is securely online! Open Telegram to test it.")

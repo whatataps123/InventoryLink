@@ -1,13 +1,15 @@
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import ContextTypes, ConversationHandler
+import os
 
 from config import MAINTENANCE_MODE, supabase
 from menus import get_main_menu, get_inventory_menu, get_sales_menu, get_utang_menu
+from ai_scanner import analyze_receipt
 
 # -----------------------------------
-# THE WIZARD STATES (Now with Rename Store)
+# THE WIZARD STATES (Now properly including AI_PHOTO and AI_CONFIRM!)
 # -----------------------------------
-CATEGORY, ITEM_NAME, QUANTITY, PRICE, SALE_ITEM, SALE_QUANTITY, EDIT_SEARCH, EDIT_CHOOSE_FIELD, EDIT_NEW_VALUE, DELETE_SEARCH, DELETE_CONFIRM, RENAME_STORE = range(12)
+CATEGORY, ITEM_NAME, QUANTITY, PRICE, SALE_ITEM, SALE_QUANTITY, EDIT_SEARCH, EDIT_CHOOSE_FIELD, EDIT_NEW_VALUE, DELETE_SEARCH, DELETE_CONFIRM, RENAME_STORE, AI_PHOTO, AI_CONFIRM = range(14)
 
 # ==========================================
 # 1. THE MANUAL ADD WIZARD
@@ -384,7 +386,103 @@ async def receive_new_store_name(update: Update, context: ContextTypes.DEFAULT_T
     return ConversationHandler.END
 
 # ==========================================
-# 6. THE NORMAL MENU BUTTONS
+# 7. THE GEMINI AI SCANNER WIZARD
+# ==========================================
+async def ai_add_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "📸 **AI Receipt Scanner**\n\nPlease send a clear photo of your receipt or invoice.",
+        reply_markup=ReplyKeyboardMarkup([["❌ Cancel"]], resize_keyboard=True)
+    )
+    return AI_PHOTO
+
+async def receive_ai_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.text == "❌ Cancel":
+        await update.message.reply_text("❌ Cancelled.", reply_markup=get_inventory_menu())
+        return ConversationHandler.END
+
+    if not update.message.photo:
+        await update.message.reply_text("⚠️ Please send a photo, or click Cancel.")
+        return AI_PHOTO
+
+    processing_msg = await update.message.reply_text("⏳ Gemini AI is analyzing your receipt... Please wait.")
+    file_path = f"temp_receipt_{update.message.from_user.id}.jpg"
+
+    try:
+        # 1. Download the photo
+        photo_file = await update.message.photo[-1].get_file()
+        await photo_file.download_to_drive(file_path)
+
+        # 2. Analyze with Gemini
+        scanned_items = analyze_receipt(file_path)
+
+        if not scanned_items:
+            await processing_msg.edit_text("⚠️ Sorry, I couldn't extract any items from that image. Please try a clearer photo or add manually.")
+            return ConversationHandler.END
+
+        # 3. Save data to memory and ask user to confirm
+        context.user_data['scanned_items'] = scanned_items
+        
+        reply_text = "✨ **Gemini found these items:**\n\n"
+        for item in scanned_items:
+            reply_text += f"▪️ {item.get('quantity', 1)}x {item.get('item_name', 'Unknown')} (₱{item.get('wholesale_price', 0)})\n"
+        reply_text += "\nDo you want to add all these to your inventory?"
+        
+        keyboard = [["✅ Yes, Add All"], ["❌ Cancel"]]
+        await processing_msg.delete()
+        await update.message.reply_text(reply_text, reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True))
+        return AI_CONFIRM
+
+    except Exception as e:
+        # If ANYTHING goes wrong, we catch it here so the bot doesn't freeze!
+        print(f"Error during AI processing: {e}")
+        await processing_msg.edit_text("⚠️ An error occurred while reading the receipt. Please try again or type /start.")
+        return ConversationHandler.END
+
+    finally:
+        # This block runs no matter what, guaranteeing the file is cleaned up.
+        if os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+            except Exception as cleanup_error:
+                print(f"Could not delete temp file: {cleanup_error}")
+
+async def confirm_ai_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    if text == "❌ Cancel":
+        await update.message.reply_text("❌ Cancelled.", reply_markup=get_inventory_menu())
+        return ConversationHandler.END
+
+    if text == "✅ Yes, Add All":
+        scanned_items = context.user_data.get('scanned_items', [])
+        user_id = update.message.from_user.id
+        
+        success_count = 0
+        for item in scanned_items:
+            try:
+                qty = int(item.get('quantity', 1))
+                wholesale = float(item.get('wholesale_price', 0))
+                retail = wholesale * 1.20 
+                name = item.get('item_name', 'Unknown Item')
+                
+                supabase.table("inventory").insert({
+                    "telegram_id": user_id,
+                    "category": "📦 Others", 
+                    "item_name": name,
+                    "quantity": qty,
+                    "wholesale_price": wholesale,
+                    "retail_price": retail
+                }).execute()
+                success_count += 1
+            except Exception as e:
+                print(f"Error saving AI item: {e}")
+
+        await update.message.reply_text(f"✅ **Success!** Added {success_count} items to your inventory.", reply_markup=get_inventory_menu())
+    
+    context.user_data.clear()
+    return ConversationHandler.END
+
+# ==========================================
+# 8. THE NORMAL MENU BUTTONS
 # ==========================================
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if MAINTENANCE_MODE:
@@ -410,7 +508,6 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         print(f"Registration Error: {e}")
         await update.message.reply_text("⚠️ Server Error during registration.", reply_markup=get_main_menu())
-
 
 async def handle_ui_clicks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if MAINTENANCE_MODE:
@@ -461,9 +558,6 @@ async def handle_ui_clicks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             await update.message.reply_text("⚠️ Server Error.", reply_markup=get_inventory_menu())
 
-    # ==========================================
-    # 🔗 THE DASHBOARD MAGIC LINK LOGIC
-    # ==========================================
     elif user_text == "📊 View Web Dashboard":
         base_url = "http://localhost:8501" 
         magic_link = f"{base_url}/?store_id={user_id}"
@@ -475,10 +569,10 @@ async def handle_ui_clicks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         await update.message.reply_text(reply_msg, reply_markup=get_main_menu())
 
-    elif user_text in ["📸 Add via AI (Photo)", "📈 View Sales Report", "➕ Add New Utang", "💳 Record Payment"]:
+    elif user_text in ["📈 View Sales Report", "➕ Add New Utang", "💳 Record Payment"]:
         await update.message.reply_text(f"*(Feature Coming Soon)*")
         
     elif user_text == "🔙 Back to Main Menu":
         await update.message.reply_text("🏠 Returning to Main Menu...", reply_markup=get_main_menu())
     else:
-        await update.message.reply_text("🤔 Please use the menu buttons.")
+        pass # Ignore other text inputs
