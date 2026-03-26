@@ -15,22 +15,39 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # 3. DASHBOARD HEADER
-st.title("📦 InventoryLink Dashboard")
-st.write("Real-time insights for your Sari-Sari store.")
+if "store_id" not in st.query_params:
+    st.error("🔒 **Access Denied.**")
+    st.write("Please open your dashboard directly from the **InventoryLink Telegram Bot** using the '📊 View Dashboard' button.")
+    st.stop() # This completely stops the rest of the website from loading!
 
-# 4. FETCH THE DATA (Now fetching both Inventory AND Sales!)
+# 2. Grab the ID from the URL
+current_store_id = st.query_params["store_id"]
+
+# Optional: Fetch the store's name to make the dashboard personalized!
+store_info = supabase.table("stores").select("store_name").eq("telegram_id", current_store_id).execute()
+store_name = store_info.data[0]['store_name'] if store_info.data else "Your Store"
+
+st.title(f"📦 {store_name} Dashboard")
+st.write("Real-time insights for your business.")
+
+# ==========================================
+# 📊 NEW: FILTERED DATA FETCHING
+# ==========================================
+# We now pass the user_id into the database fetch so it ONLY grabs their items!
+
 @st.cache_data(ttl=60) 
-def load_inventory_data():
-    response = supabase.table("inventory").select("*").execute()
+def load_inventory_data(user_id):
+    response = supabase.table("inventory").select("*").eq("telegram_id", user_id).execute()
     return response.data
 
 @st.cache_data(ttl=60)
-def load_sales_data():
-    response = supabase.table("sales_log").select("*").execute()
+def load_sales_data(user_id):
+    response = supabase.table("sales_log").select("*").eq("telegram_id", user_id).execute()
     return response.data
 
-inv_data = load_inventory_data()
-sales_data = load_sales_data()
+# Fetch the data specifically for the ID in the URL
+inv_data = load_inventory_data(current_store_id)
+sales_data = load_sales_data(current_store_id)
 
 # 5. BUILD THE VISUALS
 if not inv_data:
