@@ -34,33 +34,33 @@ Built for speed, accessibility, and scale, InventoryLink features an integrated 
 Follow these steps to run InventoryLink locally.
 
 ### 1. Clone the Repository
-```bash
 git clone https://github.com/yourusername/InventoryLink.git
 cd InventoryLink
-```
 
 ### 2. Create a Virtual Environment & Install Dependencies
-```bash
 python -m venv venv
 # Windows: venv\Scripts\activate
 # Mac/Linux: source venv/bin/activate
 
 pip install python-telegram-bot[rate-limiter] supabase python-dotenv streamlit pandas plotly google-generativeai pillow
-```
 
-### 3. Environment Variables
+### 3. Create Your Telegram Bot (via BotFather)
+1. Open Telegram and search for **@BotFather** (the official Telegram bot creator with the blue verified checkmark).
+2. Send the command `/newbot` to start the creation process.
+3. Choose a **Name** for your bot (e.g., `InventoryLink`).
+4. Choose a **Username** for your bot (must end in `bot`, e.g., `inventorylink_ph_bot`).
+5. BotFather will generate an **HTTP API Token**. Copy this long string of characters—you will need it for the next step.
+
+### 4. Environment Variables
 Create a `.env` file in the root directory and add your API keys:
-```env
-TELEGRAM_TOKEN=your_telegram_bot_token_here
+TELEGRAM_TOKEN=your_telegram_bot_token_from_botfather
 SUPABASE_URL=your_supabase_project_url_here
 SUPABASE_KEY=your_supabase_api_key_here
 GEMINI_API_KEY=your_google_gemini_api_key_here
-```
 
-### 4. Database Setup (Supabase)
+### 5. Database Setup (Supabase)
 Run the following SQL in your Supabase SQL Editor to generate the necessary tables:
 
-```sql
 -- Store Owners Table
 CREATE TABLE stores (
     telegram_id BIGINT PRIMARY KEY,
@@ -90,7 +90,6 @@ CREATE TABLE sales_log (
     payment_type TEXT,
     sale_date TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
-```
 
 ---
 
@@ -100,23 +99,18 @@ You need to run two separate processes to power both the bot and the dashboard.
 
 **Start the Telegram Bot:**
 Open a terminal and run:
-```bash
 python main.py
-```
 *Open Telegram, search for your bot, and send `/start` to register your store.*
 
 **Start the Web Dashboard:**
 Open a **second** terminal and run:
-```bash
 streamlit run dashboard.py
-```
 *To access the dashboard securely, click the **"📊 View Web Dashboard"** button inside the Telegram bot to generate your unique Magic Link.*
 
 ---
 
 ## 📂 Project Structure
 
-```text
 InventoryLink/
 │
 ├── main.py             # Application entry point & bot routing
@@ -125,9 +119,8 @@ InventoryLink/
 ├── handlers.py         # Core logic (CRUD wizards, sales processing, magic links)
 ├── ai_scanner.py       # Gemini 2.5 Flash microservice for receipt OCR
 ├── dashboard.py        # Streamlit web application & analytics
-├── .env                # Secret keys (ignored by git)
+├── .env.template       # Template for secret keys
 └── requirements.txt    # Python dependencies
-```
 
 ---
 
