@@ -34,15 +34,19 @@ Built for speed, accessibility, and scale, InventoryLink features an integrated 
 Follow these steps to run InventoryLink locally.
 
 ### 1. Clone the Repository
+```bash
 git clone https://github.com/yourusername/InventoryLink.git
 cd InventoryLink
+```
 
 ### 2. Create a Virtual Environment & Install Dependencies
+```bash
 python -m venv venv
 # Windows: venv\Scripts\activate
 # Mac/Linux: source venv/bin/activate
 
 pip install python-telegram-bot[rate-limiter] supabase python-dotenv streamlit pandas plotly google-generativeai pillow
+```
 
 ### 3. Create Your Telegram Bot (via BotFather)
 1. Open Telegram and search for **@BotFather** (the official Telegram bot creator with the blue verified checkmark).
@@ -53,14 +57,17 @@ pip install python-telegram-bot[rate-limiter] supabase python-dotenv streamlit p
 
 ### 4. Environment Variables
 Create a `.env` file in the root directory and add your API keys:
+```env
 TELEGRAM_TOKEN=your_telegram_bot_token_from_botfather
 SUPABASE_URL=your_supabase_project_url_here
 SUPABASE_KEY=your_supabase_api_key_here
 GEMINI_API_KEY=your_google_gemini_api_key_here
+```
 
 ### 5. Database Setup (Supabase)
 Run the following SQL in your Supabase SQL Editor to generate the necessary tables:
 
+```sql
 -- Store Owners Table
 CREATE TABLE stores (
     telegram_id BIGINT PRIMARY KEY,
@@ -90,6 +97,7 @@ CREATE TABLE sales_log (
     payment_type TEXT,
     sale_date TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+```
 
 ---
 
@@ -99,18 +107,22 @@ You need to run two separate processes to power both the bot and the dashboard.
 
 **Start the Telegram Bot:**
 Open a terminal and run:
+```bash
 python main.py
+```
 *Open Telegram, search for your bot, and send `/start` to register your store.*
 
 **Start the Web Dashboard:**
 Open a **second** terminal and run:
+```bash
 streamlit run dashboard.py
+```
 *To access the dashboard securely, click the **"📊 View Web Dashboard"** button inside the Telegram bot to generate your unique Magic Link.*
 
 ---
 
 ## 📂 Project Structure
-
+```text
 InventoryLink/
 │
 ├── main.py             # Application entry point & bot routing
@@ -121,7 +133,7 @@ InventoryLink/
 ├── dashboard.py        # Streamlit web application & analytics
 ├── .env.template       # Template for secret keys
 └── requirements.txt    # Python dependencies
-
+```
 ---
 
 ## 🔮 Roadmap / Future Features
