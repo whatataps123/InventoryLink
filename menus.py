@@ -2,10 +2,18 @@ from telegram import ReplyKeyboardMarkup
 
 def get_main_menu():
     keyboard = [
-        ["📦 1. Inventory", "💰 2. Sales"],
-        ["📝 3. Utang (Credit)", "📊 View Web Dashboard"], # <-- Added Dashboard here!
-        ["🏷️ Rename Store", "❓ 4. Help / About"],
+        ["📦 Inventory", "💰 Sales"],
+        ["📝 Utang (Credit)", "📊 View Web Dashboard"],
+        ["⚙️ Settings", "❓ Help / About"],
         ["❌ Exit"]
+    ]
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
+
+def get_settings_menu():
+    keyboard = [
+        ["🏷️ Rename Store", "🧾 Delete Store"],
+        ["🔙 Back to Main Menu"]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
