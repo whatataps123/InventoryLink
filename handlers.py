@@ -3,13 +3,13 @@ from telegram.ext import ContextTypes, ConversationHandler
 import os
 
 from config import MAINTENANCE_MODE, supabase
-from menus import get_main_menu, get_inventory_menu, get_sales_menu, get_utang_menu
+from menus import get_main_menu, get_inventory_menu, get_sales_menu, get_utang_menu, get_settings_menu
 from ai_scanner import analyze_receipt
 
 # -----------------------------------
 # THE WIZARD STATES (Now properly including AI_PHOTO and AI_CONFIRM!)
 # -----------------------------------
-CATEGORY, ITEM_NAME, QUANTITY, PRICE, SALE_ITEM, SALE_QUANTITY, EDIT_SEARCH, EDIT_CHOOSE_FIELD, EDIT_NEW_VALUE, DELETE_SEARCH, DELETE_CONFIRM, RENAME_STORE, AI_PHOTO, AI_CONFIRM = range(14)
+CATEGORY, ITEM_NAME, QUANTITY, PRICE, SALE_ITEM, SALE_QUANTITY, EDIT_SEARCH, EDIT_CHOOSE_FIELD, EDIT_NEW_VALUE, DELETE_SEARCH, DELETE_CONFIRM, RENAME_STORE, AI_PHOTO, AI_CONFIRM, DELETE_STORE = range(15)
 
 # ==========================================
 # 1. THE MANUAL ADD WIZARD
@@ -17,7 +17,7 @@ CATEGORY, ITEM_NAME, QUANTITY, PRICE, SALE_ITEM, SALE_QUANTITY, EDIT_SEARCH, EDI
 async def add_manual_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_keyboard = [["🥤 Drinks", "🍫 Snacks"], ["🧼 Essentials", "📦 Others"], ["❌ Cancel"]]
     await update.message.reply_text(
-        "✨ **Let's manage your stock!**\n\nFirst, what **Category** does this item belong to?",
+        "✨ Let's manage your stock!\n\nFirst, what Category does this item belong to?",
         reply_markup=ReplyKeyboardMarkup(reply_keyboard, resize_keyboard=True)
     )
     return CATEGORY
@@ -29,7 +29,7 @@ async def receive_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
     
     context.user_data['category'] = text
-    await update.message.reply_text("Great! What is the **Name** of the item?", reply_markup=ReplyKeyboardMarkup([["❌ Cancel"]], resize_keyboard=True))
+    await update.message.reply_text("Great! What is the Name of the item?", reply_markup=ReplyKeyboardMarkup([["❌ Cancel"]], resize_keyboard=True))
     return ITEM_NAME
 
 async def receive_item_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -49,10 +49,10 @@ async def receive_item_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
             existing_item = existing_items[0]
             context.user_data['existing_item'] = existing_item
             current_qty = existing_item['quantity']
-            reply_msg = f"🔍 **We found this in your stock!**\nYou currently have **{current_qty} pcs** of {existing_item['item_name']}.\n\nHow many **NEW** pieces are you adding?"
+            reply_msg = f"🔍 We found this in your stock!\nYou currently have {current_qty} pcs of {existing_item['item_name']}.\n\nHow many NEW pieces are you adding?"
         else:
             context.user_data['existing_item'] = None
-            reply_msg = f"Got it: {text}.\n\nHow many **Pieces** are you adding? (Please type a number)"
+            reply_msg = f"Got it: {text}.\n\nHow many Pieces are you adding? (Please type a number)"
 
         await update.message.reply_text(reply_msg, reply_markup=ReplyKeyboardMarkup([["❌ Cancel"]], resize_keyboard=True))
         return QUANTITY
@@ -77,10 +77,10 @@ async def receive_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if existing_item:
         old_price = existing_item['wholesale_price']
         context.user_data['old_price'] = old_price
-        reply_msg = f"Got it. Your current wholesale cost is **₱{old_price}**.\n\nKeep this price, or type a new one?"
+        reply_msg = f"Got it. Your current wholesale cost is ₱{old_price}.\n\nKeep this price, or type a new one?"
         keyboard = [[f"Keep ₱{old_price}"], ["❌ Cancel"]]
     else:
-        reply_msg = "Awesome. Finally, what is the **Wholesale Cost per piece**? (e.g., 60 or 15.50)"
+        reply_msg = "Awesome. Finally, what is the Wholesale Cost per piece? (e.g., 60 or 15.50)"
         keyboard = [["❌ Cancel"]]
 
     await update.message.reply_text(reply_msg, reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True))
@@ -115,13 +115,13 @@ async def receive_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
             supabase.table("inventory").update({
                 "quantity": final_qty, "wholesale_price": wholesale_price, "retail_price": retail_price
             }).eq("id", existing_item['id']).execute()
-            success_msg = f"✅ **Restock Successful!**\nAdded {added_qty} more to {item_name}.\nYou now have **{final_qty} pcs**.\nSelling price: ₱{retail_price:.2f}."
+            success_msg = f"✅ Restock Successful!\nAdded {added_qty} more to {item_name}.\nYou now have {final_qty} pcs.\nSelling price: ₱{retail_price:.2f}."
         else:
             supabase.table("inventory").insert({
                 "telegram_id": user_id, "category": category, "item_name": item_name,
                 "quantity": added_qty, "wholesale_price": wholesale_price, "retail_price": retail_price
             }).execute()
-            success_msg = f"✅ **New Item Added!**\nAdded {added_qty}x {item_name} to {category}.\nSelling price set to ₱{retail_price:.2f}."
+            success_msg = f"✅ New Item Added!\nAdded {added_qty}x {item_name} to {category}.\nSelling price set to ₱{retail_price:.2f}."
 
         await update.message.reply_text(success_msg, reply_markup=get_inventory_menu())
     except Exception as e:
@@ -134,7 +134,7 @@ async def receive_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # 2. THE SALES CHECKOUT WIZARD
 # ==========================================
 async def record_sale_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🛒 **Checkout Counter**\n\nWhat item did you sell? (Type the name)", reply_markup=ReplyKeyboardMarkup([["❌ Cancel"]], resize_keyboard=True))
+    await update.message.reply_text("🛒 Checkout Counter\n\nWhat item did you sell? (Type the name)", reply_markup=ReplyKeyboardMarkup([["❌ Cancel"]], resize_keyboard=True))
     return SALE_ITEM
 
 async def receive_sale_item(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -165,7 +165,7 @@ async def receive_sale_item(update: Update, context: ContextTypes.DEFAULT_TYPE):
             sold_item = items[0]
         
         context.user_data['sold_item'] = sold_item
-        reply_msg = f"🛒 **Selling: {sold_item['item_name']}**\n💰 Price: ₱{sold_item['retail_price']}\n📦 Current Stock: {sold_item['quantity']} pcs\n\nHow many pieces did you sell?"
+        reply_msg = f"🛒 Selling: {sold_item['item_name']}\n💰 Price: ₱{sold_item['retail_price']}\n📦 Current Stock: {sold_item['quantity']} pcs\n\nHow many pieces did you sell?"
         await update.message.reply_text(reply_msg, reply_markup=ReplyKeyboardMarkup([["❌ Cancel"]], resize_keyboard=True))
         return SALE_QUANTITY
 
@@ -201,7 +201,7 @@ async def receive_sale_quantity(update: Update, context: ContextTypes.DEFAULT_TY
             "telegram_id": user_id, "item_name": sold_item['item_name'],
             "quantity_sold": qty_sold, "total_amount": total_price, "payment_type": "Cash"
         }).execute()
-        success_msg = f"✅ **Sale Recorded Successfully!**\n\nSold: {qty_sold}x {sold_item['item_name']}\nTotal Earned: **₱{total_price:.2f}**\nRemaining Stock: {new_stock} pcs."
+        success_msg = f"✅ Sale Recorded Successfully!\n\nSold: {qty_sold}x {sold_item['item_name']}\nTotal Earned: ₱{total_price:.2f}\nRemaining Stock: {new_stock} pcs."
         await update.message.reply_text(success_msg, reply_markup=get_sales_menu())
     except Exception as e:
         await update.message.reply_text("⚠️ Server Error while saving sale.", reply_markup=get_sales_menu())
@@ -213,7 +213,7 @@ async def receive_sale_quantity(update: Update, context: ContextTypes.DEFAULT_TY
 # 3. THE EDIT ITEM WIZARD
 # ==========================================
 async def edit_item_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("✏️ **Edit Item**\n\nWhich item do you need to fix? (Type the name)", reply_markup=ReplyKeyboardMarkup([["❌ Cancel"]], resize_keyboard=True))
+    await update.message.reply_text("✏️ Edit Item\n\nWhich item do you need to fix? (Type the name)", reply_markup=ReplyKeyboardMarkup([["❌ Cancel"]], resize_keyboard=True))
     return EDIT_SEARCH
 
 async def receive_edit_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -245,7 +245,7 @@ async def receive_edit_search(update: Update, context: ContextTypes.DEFAULT_TYPE
         
         context.user_data['edit_item'] = edit_item
         keyboard = [["📦 Fix Quantity", "💰 Fix Wholesale Price"], ["❌ Cancel"]]
-        reply_msg = f"✏️ **Editing: {edit_item['item_name']}**\nCurrent Quantity: {edit_item['quantity']}\nCurrent Cost: ₱{edit_item['wholesale_price']}\n\nWhat would you like to change?"
+        reply_msg = f"✏️ Editing: {edit_item['item_name']}\nCurrent Quantity: {edit_item['quantity']}\nCurrent Cost: ₱{edit_item['wholesale_price']}\n\nWhat would you like to change?"
         await update.message.reply_text(reply_msg, reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True))
         return EDIT_CHOOSE_FIELD
 
@@ -260,7 +260,7 @@ async def receive_edit_field(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return ConversationHandler.END
 
     context.user_data['edit_field'] = text
-    await update.message.reply_text(f"Got it. What is the **NEW** value for {text.replace(' Fix ', '')}? (Type a number)", reply_markup=ReplyKeyboardMarkup([["❌ Cancel"]], resize_keyboard=True))
+    await update.message.reply_text(f"Got it. What is the NEW value for {text.replace(' Fix ', '')}? (Type a number)", reply_markup=ReplyKeyboardMarkup([["❌ Cancel"]], resize_keyboard=True))
     return EDIT_NEW_VALUE
 
 async def receive_edit_value(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -276,13 +276,13 @@ async def receive_edit_value(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if edit_field == "📦 Fix Quantity":
             new_value = int(text)
             supabase.table("inventory").update({"quantity": new_value}).eq("id", edit_item['id']).execute()
-            msg = f"✅ Success! **{edit_item['item_name']}** quantity is now **{new_value} pcs**."
+            msg = f"✅ Success! {edit_item['item_name']} quantity is now {new_value} pcs."
             
         elif edit_field == "💰 Fix Wholesale Price":
             new_value = float(text)
             new_retail = new_value * 1.20 # Recalculate the 20% markup
             supabase.table("inventory").update({"wholesale_price": new_value, "retail_price": new_retail}).eq("id", edit_item['id']).execute()
-            msg = f"✅ Success! **{edit_item['item_name']}** cost is now **₱{new_value}**.\nSelling price updated to **₱{new_retail:.2f}**."
+            msg = f"✅ Success! {edit_item['item_name']} cost is now ₱{new_value}.\nSelling price updated to ₱{new_retail:.2f}."
             
         await update.message.reply_text(msg, reply_markup=get_inventory_menu())
     except ValueError:
@@ -298,7 +298,7 @@ async def receive_edit_value(update: Update, context: ContextTypes.DEFAULT_TYPE)
 # 4. THE DELETE ITEM WIZARD
 # ==========================================
 async def delete_item_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🗑️ **Delete Item**\n\nWhich item do you want to permanently remove? (Type the name)", reply_markup=ReplyKeyboardMarkup([["❌ Cancel"]], resize_keyboard=True))
+    await update.message.reply_text("🗑️ Delete Item\n\nWhich item do you want to permanently remove? (Type the name)", reply_markup=ReplyKeyboardMarkup([["❌ Cancel"]], resize_keyboard=True))
     return DELETE_SEARCH
 
 async def receive_delete_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -330,7 +330,7 @@ async def receive_delete_search(update: Update, context: ContextTypes.DEFAULT_TY
         
         context.user_data['delete_item'] = delete_item
         keyboard = [["⚠️ YES, DELETE IT"], ["❌ Cancel"]]
-        reply_msg = f"🗑️ **WARNING!**\nAre you sure you want to completely delete **{delete_item['item_name']}** from your database?"
+        reply_msg = f"🗑️ WARNING!\nAre you sure you want to completely delete {delete_item['item_name']} from your database?"
         await update.message.reply_text(reply_msg, reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True))
         return DELETE_CONFIRM
 
@@ -349,7 +349,7 @@ async def receive_delete_confirm(update: Update, context: ContextTypes.DEFAULT_T
     if text == "⚠️ YES, DELETE IT":
         try:
             supabase.table("inventory").delete().eq("id", delete_item['id']).execute()
-            await update.message.reply_text(f"✅ **Deleted!** {delete_item['item_name']} has been removed.", reply_markup=get_inventory_menu())
+            await update.message.reply_text(f"✅ Deleted! {delete_item['item_name']} has been removed.", reply_markup=get_inventory_menu())
         except Exception as e:
             await update.message.reply_text("⚠️ Server Error.", reply_markup=get_inventory_menu())
     else:
@@ -363,7 +363,7 @@ async def receive_delete_confirm(update: Update, context: ContextTypes.DEFAULT_T
 # ==========================================
 async def rename_store_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "🏷️ **Rename Your Store**\n\nWhat would you like to call your store?",
+        "🏷️ Rename Your Store\n\nWhat would you like to call your store?",
         reply_markup=ReplyKeyboardMarkup([["❌ Cancel"]], resize_keyboard=True)
     )
     return RENAME_STORE
@@ -378,11 +378,47 @@ async def receive_new_store_name(update: Update, context: ContextTypes.DEFAULT_T
     
     try:
         supabase.table("stores").update({"store_name": text}).eq("telegram_id", user_id).execute()
-        await update.message.reply_text(f"✅ **Success!**\nYour store is now named: **{text}**", reply_markup=get_main_menu())
+        await update.message.reply_text(f"✅ Success!\nYour store is now named: {text}", reply_markup=get_main_menu())
     except Exception as e:
         print(f"Rename Error: {e}")
         await update.message.reply_text("⚠️ Server Error while renaming.", reply_markup=get_main_menu())
         
+    return ConversationHandler.END
+
+
+# ==========================================
+# 6. DELETE STORE WIZARD
+# ==========================================
+async def delete_store_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "🧾 Delete Store (Permanent)\n\nThis will permanently delete your store and all its inventory and sales data.\nType YES to confirm or click ❌ Cancel.",
+        reply_markup=ReplyKeyboardMarkup([["❌ Cancel"]], resize_keyboard=True)
+    )
+    return DELETE_STORE
+
+
+async def receive_delete_store_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    if text == "❌ Cancel":
+        await update.message.reply_text("❌ Cancelled.", reply_markup=get_main_menu())
+        return ConversationHandler.END
+
+    user_id = update.message.from_user.id
+    if text.strip().upper() == "YES":
+        try:
+            supabase.table("sales_log").delete().eq("telegram_id", user_id).execute()
+            supabase.table("inventory").delete().eq("telegram_id", user_id).execute()
+            supabase.table("stores").delete().eq("telegram_id", user_id).execute()
+            await update.message.reply_text(
+                "✅ Store Deleted. All data removed.\n\nPlease send /start again to register a new store.",
+                reply_markup=ReplyKeyboardRemove()
+            )
+        except Exception as e:
+            print(f"Delete Store Error: {e}")
+            await update.message.reply_text("⚠️ Server Error while deleting store.", reply_markup=get_main_menu())
+    else:
+        await update.message.reply_text("❌ Confirmation not recognized. Cancelled.", reply_markup=get_main_menu())
+
     return ConversationHandler.END
 
 # ==========================================
@@ -390,7 +426,7 @@ async def receive_new_store_name(update: Update, context: ContextTypes.DEFAULT_T
 # ==========================================
 async def ai_add_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "📸 **AI Receipt Scanner**\n\nPlease send a clear photo of your receipt or invoice.",
+        "📸 AI Receipt Scanner\n\nPlease send a clear photo of your receipt or invoice.",
         reply_markup=ReplyKeyboardMarkup([["❌ Cancel"]], resize_keyboard=True)
     )
     return AI_PHOTO
@@ -422,7 +458,7 @@ async def receive_ai_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # 3. Save data to memory and ask user to confirm
         context.user_data['scanned_items'] = scanned_items
         
-        reply_text = "✨ **Gemini found these items:**\n\n"
+        reply_text = "✨ Gemini found these items:\n\n"
         for item in scanned_items:
             reply_text += f"▪️ {item.get('quantity', 1)}x {item.get('item_name', 'Unknown')} (₱{item.get('wholesale_price', 0)})\n"
         reply_text += "\nDo you want to add all these to your inventory?"
@@ -476,7 +512,7 @@ async def confirm_ai_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception as e:
                 print(f"Error saving AI item: {e}")
 
-        await update.message.reply_text(f"✅ **Success!** Added {success_count} items to your inventory.", reply_markup=get_inventory_menu())
+        await update.message.reply_text(f"✅ Success! Added {success_count} items to your inventory.", reply_markup=get_inventory_menu())
     
     context.user_data.clear()
     return ConversationHandler.END
@@ -517,15 +553,17 @@ async def handle_ui_clicks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text
     user_id = update.message.from_user.id 
 
-    if user_text == "📦 1. Inventory":
-        await update.message.reply_text("📦 **Inventory Dashboard**", reply_markup=get_inventory_menu())
-    elif user_text == "💰 2. Sales":
-        await update.message.reply_text("💰 **Sales Dashboard**", reply_markup=get_sales_menu())
-    elif user_text == "📝 3. Utang (Credit)":
-        await update.message.reply_text("📝 **Utang Dashboard**", reply_markup=get_utang_menu())
-    elif user_text == "❓ 4. Help / About":
+    if user_text == "📦 Inventory":
+        await update.message.reply_text("📦 Inventory Dashboard", reply_markup=get_inventory_menu())
+    elif user_text == "⚙️ Settings":
+        await update.message.reply_text("⚙️ Settings", reply_markup=get_settings_menu())
+    elif user_text == "💰 Sales":
+        await update.message.reply_text("💰 Sales Dashboard", reply_markup=get_sales_menu())
+    elif user_text == "📝 Utang (Credit)":
+        await update.message.reply_text("📝 Utang Dashboard", reply_markup=get_utang_menu())
+    elif user_text == "❓ Help / About":
         about_text = (
-            "🤖 **About InventoryLink**\n\n"
+            "🤖 About InventoryLink\n\n"
             "InventoryLink is a simple Telegram bot that helps Sari-Sari store owners track stock and sales directly from their phones. "
             "We built it to replace messy notebooks with a fast, cloud-synced digital assistant."
         )
@@ -548,9 +586,9 @@ async def handle_ui_clicks(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         grouped_items[cat] = []
                     grouped_items[cat].append(item)
                 
-                inventory_text = "📊 **Your Current Stock:**\n\n"
+                inventory_text = "📊 Your Current Stock:\n\n"
                 for cat, cat_items in grouped_items.items():
-                    inventory_text += f"**{cat}**\n"
+                    inventory_text += f"{cat}\n"
                     for item in cat_items:
                         inventory_text += f"   ▪️ {item['item_name']}: {item['quantity']} pcs (₱{item['retail_price']})\n"
                     inventory_text += "\n"
@@ -562,15 +600,15 @@ async def handle_ui_clicks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         base_url = "http://localhost:8501" 
         magic_link = f"{base_url}/?store_id={user_id}"
         reply_msg = (
-            "📊 **Your Personal Dashboard is ready!**\n\n"
+            "📊 Your Personal Dashboard is ready!\n\n"
             "Click the secure link below to view your real-time store analytics:\n"
             f"👉 {magic_link}\n\n"
-            "*(Do not share this link with anyone!)*"
+            "(Do not share this link with anyone!)"
         )
         await update.message.reply_text(reply_msg, reply_markup=get_main_menu())
 
     elif user_text in ["📈 View Sales Report", "➕ Add New Utang", "💳 Record Payment"]:
-        await update.message.reply_text(f"*(Feature Coming Soon)*")
+        await update.message.reply_text("(Feature Coming Soon)")
         
     elif user_text == "🔙 Back to Main Menu":
         await update.message.reply_text("🏠 Returning to Main Menu...", reply_markup=get_main_menu())

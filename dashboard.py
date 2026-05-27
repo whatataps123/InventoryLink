@@ -16,8 +16,8 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # 3. DASHBOARD HEADER
 if "store_id" not in st.query_params:
-    st.error("🔒 **Access Denied.**")
-    st.write("Please open your dashboard directly from the **InventoryLink Telegram Bot** using the '📊 View Dashboard' button.")
+    st.error("🔒 Access Denied.")
+    st.write("Please open your dashboard directly from the InventoryLink Telegram Bot using the '📊 View Dashboard' button.")
     st.stop() # This completely stops the rest of the website from loading!
 
 # 2. Grab the ID from the URL
