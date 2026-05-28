@@ -2,7 +2,7 @@
 
 ![InventoryLink Banner](https://img.shields.io/badge/Status-Active-brightgreen) ![Python Version](https://img.shields.io/badge/Python-3.9%2B-blue) ![License](https://img.shields.io/badge/License-MIT-green)
 
-**InventoryLink** is a smart, Telegram-based Point-of-Sale (POS) and inventory management bot designed specifically for Sari-Sari store owners in the Philippines. It replaces messy notebooks with a fast, cloud-synced digital assistant that can be accessed anywhere directly from a mobile phone.
+**InventoryLink** is a smart, Telegram-based Point-of-Sale (POS) and inventory management bot designed specifically for micro-retail owners in the Philippines. It replaces messy notebooks with a fast, cloud-synced digital assistant that can be accessed anywhere directly from a mobile phone.
 
 Built for speed, accessibility, and scale, InventoryLink features an integrated **Gemini AI Receipt Scanner** to automate data entry and a **Real-Time Streamlit Dashboard** secured via Magic Links.
 
@@ -70,52 +70,90 @@ GEMINI_API_KEY=your_google_gemini_api_key_here
 ```
 
 ### 5. Database Setup (Supabase)
-Run the following SQL in your Supabase SQL Editor to generate the necessary tables:
-
-For the sales reporting and daily audit features, also run [sql/sales_reporting_audit_migration.sql](sql/sales_reporting_audit_migration.sql) to create the `daily_drawer_audits` table.
-
-For existing `stores` tables, add the newer settings columns:
+Run the following SQL in your Supabase SQL Editor to generate the necessary tables, relations, and constraints for the application:
 
 ```sql
-ALTER TABLE stores ADD COLUMN IF NOT EXISTS low_stock_limit INT DEFAULT 5;
-ALTER TABLE stores ADD COLUMN IF NOT EXISTS retail_markup_percent DECIMAL(5,2) DEFAULT 20;
-ALTER TABLE stores ADD COLUMN IF NOT EXISTS inventory_categories JSONB;
+-- 1. Store Owners Table
+CREATE TABLE public.stores (
+  telegram_id bigint NOT NULL,
+  owner_name text,
+  store_name text,
+  joined_at timestamp with time zone DEFAULT now(),
+  debt_grace_period_days integer DEFAULT 30,
+  low_stock_limit integer DEFAULT 5,
+  retail_markup_percent numeric DEFAULT 20,
+  inventory_categories jsonb,
+  CONSTRAINT stores_pkey PRIMARY KEY (telegram_id)
+);
+
+-- 2. Inventory Table
+CREATE TABLE public.inventory (
+  id integer NOT NULL DEFAULT nextval('inventory_id_seq'::regclass),
+  telegram_id bigint,
+  category text,
+  item_name text,
+  quantity integer,
+  wholesale_price numeric,
+  retail_price numeric,
+  CONSTRAINT inventory_pkey PRIMARY KEY (id)
+);
+
+-- 3. Sales Log Table
+CREATE TABLE public.sales_log (
+  id integer NOT NULL DEFAULT nextval('sales_log_id_seq'::regclass),
+  telegram_id bigint,
+  item_name text,
+  quantity_sold integer,
+  total_amount numeric,
+  payment_type text,
+  sale_date timestamp with time zone DEFAULT now(),
+  CONSTRAINT sales_log_pkey PRIMARY KEY (id)
+);
+
+-- 4. Daily Drawer Audits Table
+CREATE TABLE public.daily_drawer_audits (
+  id integer GENERATED ALWAYS AS IDENTITY NOT NULL,
+  telegram_id bigint NOT NULL,
+  audit_date timestamp with time zone DEFAULT now(),
+  expected_cash numeric NOT NULL,
+  actual_cash_counted numeric NOT NULL,
+  discrepancy numeric NOT NULL,
+  starting_drawer_pot numeric DEFAULT 500.00,
+  audit_notes text,
+  cashier_name text DEFAULT 'Owner'::text,
+  CONSTRAINT daily_drawer_audits_pkey PRIMARY KEY (id),
+  CONSTRAINT daily_drawer_audits_telegram_id_fkey FOREIGN KEY (telegram_id) REFERENCES public.stores(telegram_id)
+);
+
+-- 5. Customer Credit Accounts Table
+CREATE TABLE public.customer_credit_accounts (
+  id integer NOT NULL DEFAULT nextval('customer_credit_accounts_id_seq'::regclass),
+  telegram_id bigint,
+  customer_name text NOT NULL,
+  contact_info text DEFAULT 'Not Provided'::text,
+  outstanding_balance numeric DEFAULT 0.00 CHECK (outstanding_balance >= 0::numeric),
+  credit_limit numeric DEFAULT 2000.00,
+  oldest_unpaid_credit_date timestamp with time zone,
+  last_payment_date timestamp with time zone,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT customer_credit_accounts_pkey PRIMARY KEY (id),
+  CONSTRAINT customer_credit_accounts_telegram_id_fkey FOREIGN KEY (telegram_id) REFERENCES public.stores(telegram_id)
+);
+
+-- 6. Credit Transaction Ledger Table
+CREATE TABLE public.credit_transaction_ledger (
+  id integer NOT NULL DEFAULT nextval('credit_transaction_ledger_id_seq'::regclass),
+  account_id integer,
+  transaction_type text NOT NULL CHECK (transaction_type = ANY (ARRAY['CREDIT_ISSUED'::text, 'PAYMENT_RECEIVED'::text])),
+  amount numeric NOT NULL CHECK (amount > 0::numeric),
+  reference_notes text,
+  logged_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT credit_transaction_ledger_pkey PRIMARY KEY (id),
+  CONSTRAINT credit_transaction_ledger_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.customer_credit_accounts(id)
+);
 ```
 
-```sql
--- Store Owners Table
-CREATE TABLE stores (
-    telegram_id BIGINT PRIMARY KEY,
-    owner_name TEXT,
-    store_name TEXT,
-    low_stock_limit INT DEFAULT 5,
-    retail_markup_percent DECIMAL(5,2) DEFAULT 20,
-    inventory_categories JSONB,
-    joined_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
--- Inventory Table
-CREATE TABLE inventory (
-    id SERIAL PRIMARY KEY,
-    telegram_id BIGINT,
-    category TEXT,
-    item_name TEXT,
-    quantity INT,
-    wholesale_price DECIMAL(10,2),
-    retail_price DECIMAL(10,2)
-);
-
--- Sales Log Table
-CREATE TABLE sales_log (
-    id SERIAL PRIMARY KEY,
-    telegram_id BIGINT,
-    item_name TEXT,
-    quantity_sold INT,
-    total_amount DECIMAL(10,2),
-    payment_type TEXT,
-    sale_date TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-```
+> **Note:** The schema above is ordered for safe execution (parent tables before foreign key dependents). The canonical source-of-truth schema exported from Supabase lists tables alphabetically — both representations are equivalent.
 
 ---
 
