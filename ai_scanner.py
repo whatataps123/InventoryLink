@@ -9,15 +9,31 @@ genai.configure(api_key=GEMINI_API_KEY)
 # 🧠 THE FIX: We upgrade to the brand new, active 2.5 model!
 model = genai.GenerativeModel('gemini-2.5-flash')
 
-def analyze_receipt(image_path):
+def analyze_receipt(image_path, categories=None):
     """Takes an image path, sends it to Gemini, and returns a list of dictionaries."""
     try:
+        category_values = categories or [
+            "Beverages",
+            "Food & Snacks",
+            "Rice, Grains & Staples",
+            "Cooking & Condiments",
+            "Canned & Packaged Goods",
+            "Household & Cleaning",
+            "Personal Care",
+            "Health & Baby Care",
+            "Load & Services",
+            "School & Office Supplies",
+            "Others",
+        ]
+        category_text = ", ".join(str(category).strip() for category in category_values if str(category).strip())
+
         with PIL.Image.open(image_path) as img:
-            prompt = """
+            prompt = f"""
             You are a data extraction bot for a Sari-Sari store POS system.
-            Analyze this receipt or invoice. Extract the items, quantities, and wholesale prices.
+            Analyze this receipt or invoice. Extract the items, quantities, wholesale prices, and best sari-sari store category.
+            Use only these category values: {category_text}.
             Return ONLY a valid JSON array of objects, with NO markdown formatting, NO backticks, and NO extra text.
-            Format example: [{"item_name": "Coke 1.5L", "quantity": 2, "wholesale_price": 60.00}]
+            Format example: [{{"item_name": "Coke 1.5L", "quantity": 2, "wholesale_price": 60.00, "category": "Beverages"}}]
             If you cannot read the image or find no items, return an empty array [].
             """
             

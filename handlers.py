@@ -11,9 +11,134 @@ from ai_scanner import analyze_receipt
 # -----------------------------------
 # THE WIZARD STATES
 # -----------------------------------
-CATEGORY, ITEM_NAME, QUANTITY, PRICE, SALE_ITEM, SALE_QUANTITY, EDIT_SEARCH, EDIT_CHOOSE_FIELD, EDIT_NEW_VALUE, DELETE_SEARCH, DELETE_CONFIRM, RENAME_STORE, AI_PHOTO, AI_CONFIRM, DELETE_STORE, UTANG_CUSTOMER, UTANG_CONTACT, UTANG_ITEM, UTANG_QTY, UTANG_CART_ACTION, UTANG_NOTES, PAYMENT_CUSTOMER, PAYMENT_AMOUNT, SEARCH_CUSTOMER_QUERY, EDIT_DEBT_LIMIT, GET_STARTING_POT, GET_ACTUAL_CASH, GET_AUDIT_NOTES = range(28)
+CATEGORY, ITEM_NAME, QUANTITY, PRICE, SALE_ITEM, SALE_QUANTITY, EDIT_SEARCH, EDIT_CHOOSE_FIELD, EDIT_NEW_VALUE, DELETE_SEARCH, DELETE_CONFIRM, RENAME_STORE, AI_PHOTO, AI_CONFIRM, DELETE_STORE, UTANG_CUSTOMER, UTANG_CONTACT, UTANG_ITEM, UTANG_QTY, UTANG_CART_ACTION, UTANG_NOTES, PAYMENT_CUSTOMER, PAYMENT_AMOUNT, SEARCH_CUSTOMER_QUERY, EDIT_DEBT_LIMIT, EDIT_STOCK_LIMIT, EDIT_MARKUP_PERCENT, CATEGORY_ACTION, CATEGORY_ADD_NAME, CATEGORY_RENAME_TARGET, CATEGORY_RENAME_VALUE, CATEGORY_DELETE_TARGET, GET_STARTING_POT, GET_ACTUAL_CASH, GET_AUDIT_NOTES = range(35)
 
 PHT = timezone(timedelta(hours=8))
+DEFAULT_LOW_STOCK_LIMIT = 5
+DEFAULT_RETAIL_MARKUP_PERCENT = 20
+INVENTORY_CATEGORIES = [
+    "🥤 Beverages",
+    "🍽️ Food & Snacks",
+    "🌾 Rice, Grains & Staples",
+    "🧂 Cooking & Condiments",
+    "🥫 Canned & Packaged Goods",
+    "🧼 Household & Cleaning",
+    "🧴 Personal Care",
+    "💊 Health & Baby Care",
+    "📱 Load & Services",
+    "🧾 School & Office Supplies",
+    "📦 Others",
+]
+
+
+def _store_categories(telegram_id):
+    merged = INVENTORY_CATEGORIES.copy()
+    seen = {category.lower() for category in merged}
+    try:
+        response = supabase.table("stores").select("inventory_categories").eq("telegram_id", telegram_id).limit(1).execute()
+        if response.data:
+            categories = response.data[0].get("inventory_categories")
+            if isinstance(categories, list) and categories:
+                for category in categories:
+                    name = str(category).strip()
+                    key = name.lower()
+                    if name and key not in seen:
+                        merged.append(name)
+                        seen.add(key)
+    except Exception as error:
+        print(f"Category settings lookup warning: {error}")
+    return merged
+
+
+def _save_store_categories(telegram_id, categories):
+    cleaned = []
+    seen = set()
+    for category in categories:
+        name = str(category).strip()
+        key = name.lower()
+        if name and key not in seen:
+            cleaned.append(name)
+            seen.add(key)
+    if "📦 Others" not in cleaned:
+        cleaned.append("📦 Others")
+    supabase.table("stores").update({"inventory_categories": cleaned}).eq("telegram_id", telegram_id).execute()
+    return cleaned
+
+
+def _category_keyboard(telegram_id=None, include_cancel=True):
+    categories = _store_categories(telegram_id) if telegram_id else INVENTORY_CATEGORIES
+    rows = [categories[i:i + 2] for i in range(0, len(categories), 2)]
+    if include_cancel:
+        rows.append(["❌ Cancel"])
+    return rows
+
+
+def _normalize_category(value, telegram_id=None):
+    if not value:
+        return "📦 Others"
+
+    cleaned = str(value).strip().lower()
+    categories = _store_categories(telegram_id) if telegram_id else INVENTORY_CATEGORIES
+    for category in categories:
+        label = re.sub(r"^[^\w#]+", "", category).strip().lower()
+        if cleaned == category.lower() or cleaned == label:
+            return category
+
+    aliases = {
+        "beverage": "🥤 Beverages",
+        "beverages": "🥤 Beverages",
+        "drinks": "🥤 Beverages",
+        "soft drinks": "🥤 Beverages",
+        "juice": "🥤 Beverages",
+        "water": "🥤 Beverages",
+        "coffee": "🥤 Beverages",
+        "milk": "🥤 Beverages",
+        "creamer": "🥤 Beverages",
+        "snacks": "🍽️ Food & Snacks",
+        "food": "🍽️ Food & Snacks",
+        "foods": "🍽️ Food & Snacks",
+        "chips": "🍽️ Food & Snacks",
+        "junk food": "🍽️ Food & Snacks",
+        "biscuits": "🍽️ Food & Snacks",
+        "bread": "🍽️ Food & Snacks",
+        "noodles": "🍽️ Food & Snacks",
+        "instant noodles": "🍽️ Food & Snacks",
+        "rice": "🌾 Rice, Grains & Staples",
+        "grains": "🌾 Rice, Grains & Staples",
+        "staples": "🌾 Rice, Grains & Staples",
+        "sugar": "🌾 Rice, Grains & Staples",
+        "flour": "🌾 Rice, Grains & Staples",
+        "salt": "🧂 Cooking & Condiments",
+        "soy sauce": "🧂 Cooking & Condiments",
+        "vinegar": "🧂 Cooking & Condiments",
+        "oil": "🧂 Cooking & Condiments",
+        "condiments": "🧂 Cooking & Condiments",
+        "canned goods": "🥫 Canned & Packaged Goods",
+        "canned food": "🥫 Canned & Packaged Goods",
+        "packaged goods": "🥫 Canned & Packaged Goods",
+        "cleaning": "🧼 Household & Cleaning",
+        "laundry": "🧼 Household & Cleaning",
+        "detergent": "🧼 Household & Cleaning",
+        "dishwashing": "🧼 Household & Cleaning",
+        "household": "🧼 Household & Cleaning",
+        "toiletries": "🧴 Personal Care",
+        "personal care": "🧴 Personal Care",
+        "soap": "🧴 Personal Care",
+        "shampoo": "🧴 Personal Care",
+        "toothpaste": "🧴 Personal Care",
+        "medicine": "💊 Health & Baby Care",
+        "health": "💊 Health & Baby Care",
+        "baby care": "💊 Health & Baby Care",
+        "diapers": "💊 Health & Baby Care",
+        "cigarettes": "🚬 Tobacco",
+        "tobacco": "🚬 Tobacco",
+        "load": "📱 Load & Services",
+        "e-load": "📱 Load & Services",
+        "services": "📱 Load & Services",
+        "school supplies": "🧾 School & Office Supplies",
+        "office supplies": "🧾 School & Office Supplies",
+    }
+    return aliases.get(cleaned, "📦 Others")
 
 
 def _format_currency(value):
@@ -68,6 +193,53 @@ def _sales_rows_for_store(telegram_id):
 def _inventory_rows_for_store(telegram_id):
     response = supabase.table("inventory").select("item_name, quantity, wholesale_price, retail_price").eq("telegram_id", telegram_id).execute()
     return response.data or []
+
+
+def _store_low_stock_limit(telegram_id):
+    try:
+        response = supabase.table("stores").select("low_stock_limit").eq("telegram_id", telegram_id).limit(1).execute()
+        if response.data:
+            return int(response.data[0].get("low_stock_limit") or DEFAULT_LOW_STOCK_LIMIT)
+    except Exception as error:
+        print(f"Low stock limit lookup warning: {error}")
+    return DEFAULT_LOW_STOCK_LIMIT
+
+
+def _store_retail_markup_percent(telegram_id):
+    try:
+        response = supabase.table("stores").select("retail_markup_percent").eq("telegram_id", telegram_id).limit(1).execute()
+        if response.data:
+            return float(response.data[0].get("retail_markup_percent") or DEFAULT_RETAIL_MARKUP_PERCENT)
+    except Exception as error:
+        print(f"Selling price percentage lookup warning: {error}")
+    return DEFAULT_RETAIL_MARKUP_PERCENT
+
+
+def _retail_price_from_wholesale(wholesale_price, telegram_id):
+    markup_percent = _store_retail_markup_percent(telegram_id)
+    return float(wholesale_price) * (1 + (markup_percent / 100))
+
+
+async def _send_low_stock_alert(update: Update, telegram_id, item_name, new_stock):
+    limit = _store_low_stock_limit(telegram_id)
+    if int(new_stock) > limit:
+        return
+
+    if int(new_stock) <= 0:
+        status = "OUT OF STOCK"
+        action = "Restock this item as soon as possible."
+    else:
+        status = "LOW STOCK"
+        action = f"Stock is at or below your alert limit of {limit} pcs."
+
+    await update.effective_message.reply_text(
+        "🚨 AUTOMATED STOCK ALERT\n\n"
+        f"Item: {item_name}\n"
+        f"Status: {status}\n"
+        f"Remaining Stock: {int(new_stock)} pcs\n"
+        f"Alert Limit: {limit} pcs\n\n"
+        f"{action}"
+    )
 
 
 def _sales_rows_for_date(telegram_id, target_date, payment_type=None):
@@ -249,10 +421,9 @@ async def cancel_daily_audit(update: Update, context: ContextTypes.DEFAULT_TYPE)
 # 1. THE MANUAL ADD WIZARD
 # ==========================================
 async def add_manual_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    reply_keyboard = [["🥤 Drinks", "🍫 Snacks"], ["🧼 Essentials", "📦 Others"], ["❌ Cancel"]]
     await update.message.reply_text(
         "✨ Let's manage your stock!\n\nFirst, what Category does this item belong to?",
-        reply_markup=ReplyKeyboardMarkup(reply_keyboard, resize_keyboard=True)
+        reply_markup=ReplyKeyboardMarkup(_category_keyboard(update.message.from_user.id), resize_keyboard=True)
     )
     return CATEGORY
 
@@ -262,7 +433,7 @@ async def receive_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Cancelled.", reply_markup=get_inventory_menu())
         return ConversationHandler.END
     
-    context.user_data['category'] = text
+    context.user_data['category'] = _normalize_category(text, update.message.from_user.id)
     await update.message.reply_text("Great! What is the Name of the item?", reply_markup=ReplyKeyboardMarkup([["❌ Cancel"]], resize_keyboard=True))
     return ITEM_NAME
 
@@ -341,7 +512,7 @@ async def receive_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
     item_name = context.user_data['item_name']
     added_qty = context.user_data['added_quantity']
     user_id = update.message.from_user.id
-    retail_price = wholesale_price * 1.20 
+    retail_price = _retail_price_from_wholesale(wholesale_price, user_id)
 
     try:
         if existing_item:
@@ -437,6 +608,7 @@ async def receive_sale_quantity(update: Update, context: ContextTypes.DEFAULT_TY
         }).execute()
         success_msg = f"✅ Sale Recorded Successfully!\n\nSold: {qty_sold}x {sold_item['item_name']}\nTotal Earned: ₱{total_price:.2f}\nRemaining Stock: {new_stock} pcs."
         await update.message.reply_text(success_msg, reply_markup=get_sales_menu())
+        await _send_low_stock_alert(update, user_id, sold_item['item_name'], new_stock)
     except Exception as e:
         await update.message.reply_text("⚠️ Server Error while saving sale.", reply_markup=get_sales_menu())
 
@@ -478,8 +650,14 @@ async def receive_edit_search(update: Update, context: ContextTypes.DEFAULT_TYPE
             edit_item = items[0]
         
         context.user_data['edit_item'] = edit_item
-        keyboard = [["📦 Fix Quantity", "💰 Fix Wholesale Price"], ["❌ Cancel"]]
-        reply_msg = f"✏️ Editing: {edit_item['item_name']}\nCurrent Quantity: {edit_item['quantity']}\nCurrent Cost: ₱{edit_item['wholesale_price']}\n\nWhat would you like to change?"
+        keyboard = [["📦 Fix Quantity", "💰 Fix Wholesale Price"], ["🏷️ Fix Category"], ["❌ Cancel"]]
+        reply_msg = (
+            f"✏️ Editing: {edit_item['item_name']}\n"
+            f"Current Category: {edit_item.get('category', '📦 Others')}\n"
+            f"Current Quantity: {edit_item['quantity']}\n"
+            f"Current Cost: ₱{edit_item['wholesale_price']}\n\n"
+            "What would you like to change?"
+        )
         await update.message.reply_text(reply_msg, reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True))
         return EDIT_CHOOSE_FIELD
 
@@ -494,7 +672,13 @@ async def receive_edit_field(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return ConversationHandler.END
 
     context.user_data['edit_field'] = text
-    await update.message.reply_text(f"Got it. What is the NEW value for {text.replace(' Fix ', '')}? (Type a number)", reply_markup=ReplyKeyboardMarkup([["❌ Cancel"]], resize_keyboard=True))
+    if text == "🏷️ Fix Category":
+        await update.message.reply_text(
+            "Choose the new category:",
+            reply_markup=ReplyKeyboardMarkup(_category_keyboard(update.message.from_user.id), resize_keyboard=True),
+        )
+    else:
+        await update.message.reply_text(f"Got it. What is the NEW value for {text.replace(' Fix ', '')}? (Type a number)", reply_markup=ReplyKeyboardMarkup([["❌ Cancel"]], resize_keyboard=True))
     return EDIT_NEW_VALUE
 
 async def receive_edit_value(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -514,9 +698,14 @@ async def receive_edit_value(update: Update, context: ContextTypes.DEFAULT_TYPE)
             
         elif edit_field == "💰 Fix Wholesale Price":
             new_value = float(text)
-            new_retail = new_value * 1.20 # Recalculate the 20% markup
+            new_retail = _retail_price_from_wholesale(new_value, update.message.from_user.id)
             supabase.table("inventory").update({"wholesale_price": new_value, "retail_price": new_retail}).eq("id", edit_item['id']).execute()
             msg = f"✅ Success! {edit_item['item_name']} cost is now ₱{new_value}.\nSelling price updated to ₱{new_retail:.2f}."
+
+        elif edit_field == "🏷️ Fix Category":
+            new_category = _normalize_category(text, update.message.from_user.id)
+            supabase.table("inventory").update({"category": new_category}).eq("id", edit_item['id']).execute()
+            msg = f"✅ Success! {edit_item['item_name']} moved to {new_category}."
             
         await update.message.reply_text(msg, reply_markup=get_inventory_menu())
     except ValueError:
@@ -670,6 +859,283 @@ async def receive_debt_limit_value(update: Update, context: ContextTypes.DEFAULT
         return ConversationHandler.END
 
 
+async def edit_stock_limit_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    current_limit = _store_low_stock_limit(user_id)
+
+    await update.message.reply_text(
+        f"🚨 Edit Stock Alert Limit\n\nCurrent alert limit: {current_limit} pcs.\n"
+        "The bot will send an automatic alert when an item drops to this number or below.\n\n"
+        "Enter new limit in pieces (1-999):",
+        reply_markup=ReplyKeyboardMarkup([["❌ Cancel", "🔙 Back to Main Menu"]], resize_keyboard=True),
+    )
+    return EDIT_STOCK_LIMIT
+
+
+async def receive_stock_limit_value(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = (update.message.text or "").strip()
+    if text == "❌ Cancel":
+        await update.message.reply_text("❌ Cancelled.", reply_markup=get_settings_menu())
+        return ConversationHandler.END
+    if text == "🔙 Back to Main Menu":
+        await update.message.reply_text("🏠 Returning to Main Menu...", reply_markup=get_main_menu())
+        return ConversationHandler.END
+
+    if not text.isdigit():
+        await update.message.reply_text("⚠️ Please enter a whole number between 1 and 999.")
+        return EDIT_STOCK_LIMIT
+
+    limit = int(text)
+    if limit < 1 or limit > 999:
+        await update.message.reply_text("⚠️ Limit must be between 1 and 999 pieces.")
+        return EDIT_STOCK_LIMIT
+
+    user_id = update.message.from_user.id
+    try:
+        supabase.table("stores").update({"low_stock_limit": limit}).eq("telegram_id", user_id).execute()
+        await update.message.reply_text(
+            f"✅ Low-stock alert limit updated to {limit} pcs.",
+            reply_markup=get_settings_menu(),
+        )
+        return ConversationHandler.END
+    except Exception as e:
+        print(f"Stock limit update error: {e}")
+        await update.message.reply_text(
+            "⚠️ Failed to update stock alert limit. Please make sure the stores.low_stock_limit column exists in Supabase.",
+            reply_markup=get_settings_menu(),
+        )
+        return ConversationHandler.END
+
+
+async def edit_markup_percent_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    current_percent = _store_retail_markup_percent(user_id)
+
+    await update.message.reply_text(
+        f"💸 Edit Selling Price Percentage\n\nCurrent markup: {current_percent:g}% above wholesale cost.\n"
+        "Example: if wholesale is ₱10 and markup is 20%, selling price becomes ₱12.\n\n"
+        "Enter new percentage (0-500):",
+        reply_markup=ReplyKeyboardMarkup([["❌ Cancel", "🔙 Back to Main Menu"]], resize_keyboard=True),
+    )
+    return EDIT_MARKUP_PERCENT
+
+
+async def receive_markup_percent_value(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = (update.message.text or "").strip()
+    if text == "❌ Cancel":
+        await update.message.reply_text("❌ Cancelled.", reply_markup=get_settings_menu())
+        return ConversationHandler.END
+    if text == "🔙 Back to Main Menu":
+        await update.message.reply_text("🏠 Returning to Main Menu...", reply_markup=get_main_menu())
+        return ConversationHandler.END
+
+    try:
+        markup_percent = float(text)
+    except ValueError:
+        await update.message.reply_text("⚠️ Please enter a valid percentage, like 20 or 12.5.")
+        return EDIT_MARKUP_PERCENT
+
+    if markup_percent < 0 or markup_percent > 500:
+        await update.message.reply_text("⚠️ Percentage must be between 0 and 500.")
+        return EDIT_MARKUP_PERCENT
+
+    user_id = update.message.from_user.id
+    try:
+        supabase.table("stores").update({"retail_markup_percent": markup_percent}).eq("telegram_id", user_id).execute()
+
+        items = supabase.table("inventory").select("id, wholesale_price").eq("telegram_id", user_id).execute()
+        updated_count = 0
+        for item in items.data or []:
+            wholesale = float(item.get("wholesale_price") or 0)
+            new_retail = wholesale * (1 + (markup_percent / 100))
+            supabase.table("inventory").update({"retail_price": new_retail}).eq("id", item["id"]).eq("telegram_id", user_id).execute()
+            updated_count += 1
+
+        await update.message.reply_text(
+            f"✅ Selling price markup updated to {markup_percent:g}%.\n"
+            f"Updated selling prices for {updated_count} inventory item(s).",
+            reply_markup=get_settings_menu(),
+        )
+        return ConversationHandler.END
+    except Exception as e:
+        print(f"Selling price percentage update error: {e}")
+        await update.message.reply_text(
+            "⚠️ Failed to update selling price percentage. Please make sure the stores.retail_markup_percent column exists in Supabase.",
+            reply_markup=get_settings_menu(),
+        )
+        return ConversationHandler.END
+
+
+def _category_management_keyboard():
+    return ReplyKeyboardMarkup(
+        [
+            ["👀 View Categories", "➕ Add Category"],
+            ["✏️ Rename Category", "🗑️ Delete Category"],
+            ["🔙 Back to Settings"],
+        ],
+        resize_keyboard=True,
+    )
+
+
+async def manage_categories_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "🗂️ Category Manager\n\nChoose what you want to do:",
+        reply_markup=_category_management_keyboard(),
+    )
+    return CATEGORY_ACTION
+
+
+async def process_category_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = (update.message.text or "").strip()
+    user_id = update.message.from_user.id
+
+    if text == "🔙 Back to Settings":
+        await update.message.reply_text("⚙️ Settings", reply_markup=get_settings_menu())
+        return ConversationHandler.END
+
+    if text == "👀 View Categories":
+        categories = _store_categories(user_id)
+        lines = ["🗂️ Your Inventory Categories", "─────────────────────────"]
+        lines.extend([f"{idx}. {category}" for idx, category in enumerate(categories, start=1)])
+        await update.message.reply_text("\n".join(lines), reply_markup=_category_management_keyboard())
+        return CATEGORY_ACTION
+
+    if text == "➕ Add Category":
+        await update.message.reply_text(
+            "➕ Add Category\n\nType the new category name:",
+            reply_markup=ReplyKeyboardMarkup([["❌ Cancel"]], resize_keyboard=True),
+        )
+        return CATEGORY_ADD_NAME
+
+    if text == "✏️ Rename Category":
+        await update.message.reply_text(
+            "✏️ Rename Category\n\nChoose the category to rename:",
+            reply_markup=ReplyKeyboardMarkup(_category_keyboard(user_id), resize_keyboard=True),
+        )
+        return CATEGORY_RENAME_TARGET
+
+    if text == "🗑️ Delete Category":
+        await update.message.reply_text(
+            "🗑️ Delete Category\n\nChoose the category to delete. Items in that category will move to 📦 Others.",
+            reply_markup=ReplyKeyboardMarkup(_category_keyboard(user_id), resize_keyboard=True),
+        )
+        return CATEGORY_DELETE_TARGET
+
+    await update.message.reply_text("⚠️ Please choose an option from the Category Manager.", reply_markup=_category_management_keyboard())
+    return CATEGORY_ACTION
+
+
+async def receive_category_add_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = (update.message.text or "").strip()
+    if text == "❌ Cancel":
+        await update.message.reply_text("🗂️ Category Manager", reply_markup=_category_management_keyboard())
+        return CATEGORY_ACTION
+
+    if not text:
+        await update.message.reply_text("⚠️ Category name cannot be blank.")
+        return CATEGORY_ADD_NAME
+
+    user_id = update.message.from_user.id
+    categories = _store_categories(user_id)
+    if any(category.lower() == text.lower() for category in categories):
+        await update.message.reply_text("⚠️ That category already exists. Type a different name.")
+        return CATEGORY_ADD_NAME
+
+    try:
+        _save_store_categories(user_id, categories + [text])
+        await update.message.reply_text(f"✅ Added category: {text}", reply_markup=_category_management_keyboard())
+        return CATEGORY_ACTION
+    except Exception as e:
+        print(f"Add category error: {e}")
+        await update.message.reply_text(
+            "⚠️ Failed to save category. Please make sure the stores.inventory_categories column exists in Supabase.",
+            reply_markup=get_settings_menu(),
+        )
+        return ConversationHandler.END
+
+
+async def receive_category_rename_target(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = (update.message.text or "").strip()
+    if text == "❌ Cancel":
+        await update.message.reply_text("🗂️ Category Manager", reply_markup=_category_management_keyboard())
+        return CATEGORY_ACTION
+
+    user_id = update.message.from_user.id
+    category = _normalize_category(text, user_id)
+    if category == "📦 Others" and text != "📦 Others":
+        await update.message.reply_text("⚠️ Please choose an existing category.", reply_markup=ReplyKeyboardMarkup(_category_keyboard(user_id), resize_keyboard=True))
+        return CATEGORY_RENAME_TARGET
+
+    context.user_data["category_rename_target"] = category
+    await update.message.reply_text(
+        f"Renaming: {category}\n\nType the new category name:",
+        reply_markup=ReplyKeyboardMarkup([["❌ Cancel"]], resize_keyboard=True),
+    )
+    return CATEGORY_RENAME_VALUE
+
+
+async def receive_category_rename_value(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = (update.message.text or "").strip()
+    if text == "❌ Cancel":
+        context.user_data.pop("category_rename_target", None)
+        await update.message.reply_text("🗂️ Category Manager", reply_markup=_category_management_keyboard())
+        return CATEGORY_ACTION
+
+    if not text:
+        await update.message.reply_text("⚠️ Category name cannot be blank.")
+        return CATEGORY_RENAME_VALUE
+
+    user_id = update.message.from_user.id
+    old_category = context.user_data.get("category_rename_target")
+    categories = _store_categories(user_id)
+    if any(category.lower() == text.lower() for category in categories if category != old_category):
+        await update.message.reply_text("⚠️ That category already exists. Type a different name.")
+        return CATEGORY_RENAME_VALUE
+
+    try:
+        renamed = [text if category == old_category else category for category in categories]
+        _save_store_categories(user_id, renamed)
+        supabase.table("inventory").update({"category": text}).eq("telegram_id", user_id).eq("category", old_category).execute()
+        context.user_data.pop("category_rename_target", None)
+        await update.message.reply_text(f"✅ Renamed {old_category} to {text}.", reply_markup=_category_management_keyboard())
+        return CATEGORY_ACTION
+    except Exception as e:
+        print(f"Rename category error: {e}")
+        await update.message.reply_text("⚠️ Failed to rename category.", reply_markup=get_settings_menu())
+        return ConversationHandler.END
+
+
+async def receive_category_delete_target(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = (update.message.text or "").strip()
+    if text == "❌ Cancel":
+        await update.message.reply_text("🗂️ Category Manager", reply_markup=_category_management_keyboard())
+        return CATEGORY_ACTION
+
+    user_id = update.message.from_user.id
+    category = _normalize_category(text, user_id)
+    categories = _store_categories(user_id)
+
+    if category == "📦 Others":
+        await update.message.reply_text("⚠️ 📦 Others is required and cannot be deleted.", reply_markup=_category_management_keyboard())
+        return CATEGORY_ACTION
+    if category not in categories:
+        await update.message.reply_text("⚠️ Please choose an existing category.", reply_markup=ReplyKeyboardMarkup(_category_keyboard(user_id), resize_keyboard=True))
+        return CATEGORY_DELETE_TARGET
+
+    try:
+        _save_store_categories(user_id, [existing for existing in categories if existing != category])
+        supabase.table("inventory").update({"category": "📦 Others"}).eq("telegram_id", user_id).eq("category", category).execute()
+        await update.message.reply_text(
+            f"✅ Deleted category: {category}\nItems that used it were moved to 📦 Others.",
+            reply_markup=_category_management_keyboard(),
+        )
+        return CATEGORY_ACTION
+    except Exception as e:
+        print(f"Delete category error: {e}")
+        await update.message.reply_text("⚠️ Failed to delete category.", reply_markup=get_settings_menu())
+        return ConversationHandler.END
+
+
 # ==========================================
 # 6. DELETE STORE WIZARD
 # ==========================================
@@ -733,7 +1199,7 @@ async def receive_ai_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await photo_file.download_to_drive(file_path)
 
         # 2. Analyze with Gemini
-        scanned_items = analyze_receipt(file_path)
+        scanned_items = analyze_receipt(file_path, _store_categories(update.message.from_user.id))
 
         if not scanned_items:
             await processing_msg.edit_text("⚠️ Sorry, I couldn't extract any items from that image. Please try a clearer photo or add manually.")
@@ -744,7 +1210,9 @@ async def receive_ai_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         reply_text = "✨ Gemini found these items:\n\n"
         for item in scanned_items:
-            reply_text += f"▪️ {item.get('quantity', 1)}x {item.get('item_name', 'Unknown')} (₱{item.get('wholesale_price', 0)})\n"
+            category = _normalize_category(item.get("category"), update.message.from_user.id)
+            item["category"] = category
+            reply_text += f"▪️ {item.get('quantity', 1)}x {item.get('item_name', 'Unknown')} - {category} (₱{item.get('wholesale_price', 0)})\n"
         reply_text += "\nDo you want to add all these to your inventory?"
         
         keyboard = [["✅ Yes, Add All"], ["❌ Cancel"]]
@@ -781,12 +1249,13 @@ async def confirm_ai_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
             try:
                 qty = int(item.get('quantity', 1))
                 wholesale = float(item.get('wholesale_price', 0))
-                retail = wholesale * 1.20 
+                retail = _retail_price_from_wholesale(wholesale, user_id)
                 name = item.get('item_name', 'Unknown Item')
+                category = _normalize_category(item.get("category"), user_id)
                 
                 supabase.table("inventory").insert({
                     "telegram_id": user_id,
-                    "category": "📦 Others", 
+                    "category": category,
                     "item_name": name,
                     "quantity": qty,
                     "wholesale_price": wholesale,
@@ -1081,6 +1550,7 @@ async def receive_utang_notes(update: Update, context: ContextTypes.DEFAULT_TYPE
         if not rpc_ok:
             supabase.table("customer_credit_accounts").update({"outstanding_balance": pre_balance + cart_total}).eq("id", account_id).execute()
 
+        stock_alerts = []
         for row in cart:
             new_stock = int(row["current_stock"]) - int(row["qty"])
             supabase.table("inventory").update({"quantity": new_stock}).eq("id", row["inventory_id"]).eq("telegram_id", user_id).execute()
@@ -1091,6 +1561,7 @@ async def receive_utang_notes(update: Update, context: ContextTypes.DEFAULT_TYPE
                 "total_amount": row["line_total"],
                 "payment_type": "Credit",
             }).execute()
+            stock_alerts.append((row["item_name"], new_stock))
 
         item_summary = ", ".join([f"{row['qty']}x {row['item_name']}" for row in cart])
         reference_notes = f"Borrowed: {item_summary}"
@@ -1116,6 +1587,8 @@ async def receive_utang_notes(update: Update, context: ContextTypes.DEFAULT_TYPE
         success_lines.append("Inventory and ledger records have been synced.")
 
         await update.message.reply_text("\n".join(success_lines), reply_markup=get_utang_menu())
+        for item_name, new_stock in stock_alerts:
+            await _send_low_stock_alert(update, user_id, item_name, new_stock)
     except Exception as e:
         print(f"Utang checkout error: {e}")
         await update.message.reply_text("⚠️ Failed to process credit checkout. Please try again.", reply_markup=get_utang_menu())
@@ -1595,9 +2068,32 @@ async def handle_ui_clicks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("📝 Utang Dashboard", reply_markup=get_utang_menu())
     elif user_text == "❓ Help / About":
         about_text = (
-            "🤖 About InventoryLink\n\n"
-            "InventoryLink is a simple Telegram bot that helps Sari-Sari store owners track stock and sales directly from their phones. "
-            "We built it to replace messy notebooks with a fast, cloud-synced digital assistant."
+            "🤖 InventoryLink User Manual\n\n"
+            "InventoryLink helps sari-sari store owners manage inventory, sales, utang, low-stock alerts, and daily cash drawer audits directly from Telegram.\n\n"
+            "📦 Inventory\n"
+            "• View Current Stock: See all items grouped by category.\n"
+            "• Add Manual: Add new stock or restock an existing item.\n"
+            "• Add via AI: Send a clear receipt photo; Gemini extracts items, quantities, wholesale prices, and categories.\n"
+            "• Edit Item: Change quantity, wholesale price, or category.\n"
+            "• Delete Item: Remove an item from your store inventory.\n\n"
+            "💰 Sales\n"
+            "• Record a Sale: Deduct stock and log cash sales.\n"
+            "• View Sales Report: Check daily sales, top items, and out-of-stock counts.\n"
+            "• Close & Audit: Compare expected cash against the actual drawer count.\n\n"
+            "📝 Utang\n"
+            "• Add New Utang: Record credit purchases and deduct stock.\n"
+            "• Record Payment: Log customer payments.\n"
+            "• View/Search Debts: Monitor active balances and aging status.\n\n"
+            "⚙️ Settings\n"
+            "• Rename Store: Update your display name.\n"
+            "• Edit Debt Limit: Set how many days before debt alerts trigger.\n"
+            "• Edit Stock Alert Limit: Set the quantity where low-stock Telegram alerts trigger.\n"
+            "• Edit Selling Price %: Set the markup used to calculate selling price from wholesale cost.\n"
+            "• Manage Categories: View, add, rename, or delete inventory categories. Deleted categories move items to 📦 Others.\n\n"
+            "🚨 Alerts\n"
+            "Low-stock alerts are sent automatically after cash sales or utang checkouts when remaining stock is at or below your alert limit.\n\n"
+            "📊 Dashboard\n"
+            "Use View Web Dashboard to open your personal analytics dashboard."
         )
         await update.message.reply_text(about_text, reply_markup=get_main_menu())
     elif user_text == "❌ Exit":

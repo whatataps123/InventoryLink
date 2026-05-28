@@ -15,6 +15,11 @@ from handlers import (
     delete_item_start, receive_delete_search, receive_delete_confirm, 
     rename_store_start, receive_new_store_name,
     edit_debt_limit_start, receive_debt_limit_value,
+    edit_stock_limit_start, receive_stock_limit_value,
+    edit_markup_percent_start, receive_markup_percent_value,
+    manage_categories_start, process_category_action,
+    receive_category_add_name, receive_category_rename_target,
+    receive_category_rename_value, receive_category_delete_target,
     delete_store_start, receive_delete_store_confirm,
     ai_add_start, receive_ai_photo, confirm_ai_add, # <-- NEW AI IMPORTS
     CATEGORY, ITEM_NAME, QUANTITY, PRICE, SALE_ITEM, SALE_QUANTITY, 
@@ -23,7 +28,8 @@ from handlers import (
     UTANG_CUSTOMER, UTANG_CONTACT, UTANG_ITEM, UTANG_QTY, UTANG_CART_ACTION, UTANG_NOTES,
     PAYMENT_CUSTOMER, PAYMENT_AMOUNT,
     SEARCH_CUSTOMER_QUERY,
-    EDIT_DEBT_LIMIT,
+    EDIT_DEBT_LIMIT, EDIT_STOCK_LIMIT, EDIT_MARKUP_PERCENT,
+    CATEGORY_ACTION, CATEGORY_ADD_NAME, CATEGORY_RENAME_TARGET, CATEGORY_RENAME_VALUE, CATEGORY_DELETE_TARGET,
     GET_STARTING_POT, GET_ACTUAL_CASH, GET_AUDIT_NOTES
 )
 
@@ -106,6 +112,34 @@ if __name__ == '__main__':
         fallbacks=[MessageHandler(filters.Text(["❌ Cancel", "🔙 Back to Main Menu"]), receive_debt_limit_value)]
     )
 
+    edit_stock_limit_wizard = ConversationHandler(
+        entry_points=[MessageHandler(filters.Text(["🚨 Edit Stock Alert Limit"]), edit_stock_limit_start)],
+        states={
+            EDIT_STOCK_LIMIT: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_stock_limit_value)],
+        },
+        fallbacks=[MessageHandler(filters.Text(["❌ Cancel", "🔙 Back to Main Menu"]), receive_stock_limit_value)]
+    )
+
+    edit_markup_percent_wizard = ConversationHandler(
+        entry_points=[MessageHandler(filters.Text(["💸 Edit Selling Price %"]), edit_markup_percent_start)],
+        states={
+            EDIT_MARKUP_PERCENT: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_markup_percent_value)],
+        },
+        fallbacks=[MessageHandler(filters.Text(["❌ Cancel", "🔙 Back to Main Menu"]), receive_markup_percent_value)]
+    )
+
+    manage_categories_wizard = ConversationHandler(
+        entry_points=[MessageHandler(filters.Text(["🗂️ Manage Categories"]), manage_categories_start)],
+        states={
+            CATEGORY_ACTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_category_action)],
+            CATEGORY_ADD_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_category_add_name)],
+            CATEGORY_RENAME_TARGET: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_category_rename_target)],
+            CATEGORY_RENAME_VALUE: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_category_rename_value)],
+            CATEGORY_DELETE_TARGET: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_category_delete_target)],
+        },
+        fallbacks=[MessageHandler(filters.Text(["❌ Cancel", "🔙 Back to Settings"]), process_category_action)]
+    )
+
     # 6. AI SCANNER WIZARD
     ai_scanner_wizard = ConversationHandler(
         entry_points=[MessageHandler(filters.Text(["📸 Add via AI (Photo)"]), ai_add_start)],
@@ -170,6 +204,9 @@ if __name__ == '__main__':
     app.add_handler(rename_store_wizard)
     app.add_handler(delete_store_wizard)
     app.add_handler(edit_debt_limit_wizard)
+    app.add_handler(edit_stock_limit_wizard)
+    app.add_handler(edit_markup_percent_wizard)
+    app.add_handler(manage_categories_wizard)
     app.add_handler(ai_scanner_wizard)
     app.add_handler(add_utang_wizard)
     app.add_handler(record_payment_wizard)

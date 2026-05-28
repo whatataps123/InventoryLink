@@ -13,7 +13,8 @@ def get_main_menu():
 def get_settings_menu():
     keyboard = [
         ["🏷️ Rename Store", "🧾 Delete Store"],
-        ["⏱️ Edit Debt Limit (Days)"],
+        ["⏱️ Edit Debt Limit (Days)", "🚨 Edit Stock Alert Limit"],
+        ["💸 Edit Selling Price %", "🗂️ Manage Categories"],
         ["🔙 Back to Main Menu"]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
