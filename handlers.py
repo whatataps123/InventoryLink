@@ -2125,7 +2125,7 @@ async def handle_ui_clicks(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("⚠️ Server Error.", reply_markup=get_inventory_menu())
 
     elif user_text == "📊 View Web Dashboard":
-        base_url = "http://localhost:8501" 
+        base_url = "https://inventorylink-dashboard.streamlit.app" 
         magic_link = f"{base_url}/?store_id={user_id}"
         reply_msg = (
             "📊 Your Personal Dashboard is ready!\n\n"
