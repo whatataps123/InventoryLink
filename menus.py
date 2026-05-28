@@ -28,8 +28,18 @@ def get_inventory_menu():
 
 def get_sales_menu():
     keyboard = [
-        ["🛒 Record a Sale", "📈 View Sales Report"],
+        ["🛒 Record a Sale"],
+        ["📈 View Sales Report", "🔒 Close & Audit"],
         ["🔙 Back to Main Menu"]
+    ]
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
+
+def get_sales_report_menu():
+    keyboard = [
+        ["☀️ Today's Drawer Summary", "📅 Lookup a Day"],
+        ["📊 View Dashboard", "🚨 Critical Out-Of-Stock"],
+        ["🔙 Back to Sales Menu"],
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 

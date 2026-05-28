@@ -8,6 +8,9 @@ from handlers import (
     receive_utang_quantity, handle_utang_cart_action, receive_utang_notes,
     record_payment_start, receive_payment_customer_name, receive_payment_amount,
     search_customer_start, receive_search_customer_query,
+    handle_view_sales_report, process_report_selection,
+    start_daily_audit, process_starting_pot,
+    process_actual_cash, process_audit_notes, cancel_daily_audit,
     edit_item_start, receive_edit_search, receive_edit_field, receive_edit_value, 
     delete_item_start, receive_delete_search, receive_delete_confirm, 
     rename_store_start, receive_new_store_name,
@@ -20,7 +23,8 @@ from handlers import (
     UTANG_CUSTOMER, UTANG_CONTACT, UTANG_ITEM, UTANG_QTY, UTANG_CART_ACTION, UTANG_NOTES,
     PAYMENT_CUSTOMER, PAYMENT_AMOUNT,
     SEARCH_CUSTOMER_QUERY,
-    EDIT_DEBT_LIMIT
+    EDIT_DEBT_LIMIT,
+    GET_STARTING_POT, GET_ACTUAL_CASH, GET_AUDIT_NOTES
 )
 
 if __name__ == '__main__':
@@ -146,6 +150,17 @@ if __name__ == '__main__':
         fallbacks=[MessageHandler(filters.Text(["❌ Cancel", "🔙 Back to Main Menu"]), receive_search_customer_query)]
     )
 
+    # 10. DAILY AUDIT WIZARD
+    audit_wizard = ConversationHandler(
+        entry_points=[MessageHandler(filters.Text(["🔒 Close & Audit"]), start_daily_audit)],
+        states={
+            GET_STARTING_POT: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_starting_pot)],
+            GET_ACTUAL_CASH: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_actual_cash)],
+            GET_AUDIT_NOTES: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_audit_notes)],
+        },
+        fallbacks=[MessageHandler(filters.Text(["❌ Cancel", "❌ Cancel Audit"]), cancel_daily_audit)],
+    )
+
     # ATTACH EVERYTHING
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(add_item_wizard)
@@ -159,6 +174,7 @@ if __name__ == '__main__':
     app.add_handler(add_utang_wizard)
     app.add_handler(record_payment_wizard)
     app.add_handler(search_customer_wizard)
+    app.add_handler(audit_wizard)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_ui_clicks))
     
     print("🤖 Bot is securely online! Open Telegram to test it.")
