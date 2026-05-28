@@ -4,14 +4,23 @@ from handlers import (
     start_command, handle_ui_clicks, 
     add_manual_start, receive_category, receive_item_name, receive_quantity, receive_price,
     record_sale_start, receive_sale_item, receive_sale_quantity,
+    add_utang_start, receive_utang_customer_name, receive_utang_contact, receive_utang_item,
+    receive_utang_quantity, handle_utang_cart_action, receive_utang_notes,
+    record_payment_start, receive_payment_customer_name, receive_payment_amount,
+    search_customer_start, receive_search_customer_query,
     edit_item_start, receive_edit_search, receive_edit_field, receive_edit_value, 
     delete_item_start, receive_delete_search, receive_delete_confirm, 
     rename_store_start, receive_new_store_name,
+    edit_debt_limit_start, receive_debt_limit_value,
     delete_store_start, receive_delete_store_confirm,
     ai_add_start, receive_ai_photo, confirm_ai_add, # <-- NEW AI IMPORTS
     CATEGORY, ITEM_NAME, QUANTITY, PRICE, SALE_ITEM, SALE_QUANTITY, 
     EDIT_SEARCH, EDIT_CHOOSE_FIELD, EDIT_NEW_VALUE, DELETE_SEARCH, DELETE_CONFIRM, RENAME_STORE,
-    AI_PHOTO, AI_CONFIRM, DELETE_STORE # <-- NEW AI STATES
+    AI_PHOTO, AI_CONFIRM, DELETE_STORE,
+    UTANG_CUSTOMER, UTANG_CONTACT, UTANG_ITEM, UTANG_QTY, UTANG_CART_ACTION, UTANG_NOTES,
+    PAYMENT_CUSTOMER, PAYMENT_AMOUNT,
+    SEARCH_CUSTOMER_QUERY,
+    EDIT_DEBT_LIMIT
 )
 
 if __name__ == '__main__':
@@ -84,6 +93,15 @@ if __name__ == '__main__':
         fallbacks=[MessageHandler(filters.Text(["❌ Cancel"]), receive_delete_store_confirm)]
     )
 
+    # 7. DEBT LIMIT SETTINGS WIZARD
+    edit_debt_limit_wizard = ConversationHandler(
+        entry_points=[MessageHandler(filters.Text(["⏱️ Edit Debt Limit (Days)"]), edit_debt_limit_start)],
+        states={
+            EDIT_DEBT_LIMIT: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_debt_limit_value)],
+        },
+        fallbacks=[MessageHandler(filters.Text(["❌ Cancel", "🔙 Back to Main Menu"]), receive_debt_limit_value)]
+    )
+
     # 6. AI SCANNER WIZARD
     ai_scanner_wizard = ConversationHandler(
         entry_points=[MessageHandler(filters.Text(["📸 Add via AI (Photo)"]), ai_add_start)],
@@ -95,6 +113,39 @@ if __name__ == '__main__':
         fallbacks=[MessageHandler(filters.Text(["❌ Cancel"]), confirm_ai_add)]
     )
 
+    # 7. ADD NEW UTANG WIZARD
+    add_utang_wizard = ConversationHandler(
+        entry_points=[MessageHandler(filters.Text(["➕ Add New Utang"]), add_utang_start)],
+        states={
+            UTANG_CUSTOMER: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_utang_customer_name)],
+            UTANG_CONTACT: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_utang_contact)],
+            UTANG_ITEM: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_utang_item)],
+            UTANG_QTY: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_utang_quantity)],
+            UTANG_CART_ACTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_utang_cart_action)],
+            UTANG_NOTES: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_utang_notes)],
+        },
+        fallbacks=[MessageHandler(filters.Text(["❌ Cancel", "🔙 Back to Main Menu"]), receive_utang_notes)]
+    )
+
+    # 8. RECORD PAYMENT WIZARD
+    record_payment_wizard = ConversationHandler(
+        entry_points=[MessageHandler(filters.Text(["💳 Record Payment"]), record_payment_start)],
+        states={
+            PAYMENT_CUSTOMER: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_payment_customer_name)],
+            PAYMENT_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_payment_amount)],
+        },
+        fallbacks=[MessageHandler(filters.Text(["❌ Cancel", "🔙 Back to Main Menu"]), receive_payment_amount)]
+    )
+
+    # 9. SEARCH CUSTOMER WIZARD
+    search_customer_wizard = ConversationHandler(
+        entry_points=[MessageHandler(filters.Text(["🔍 Search Customer"]), search_customer_start)],
+        states={
+            SEARCH_CUSTOMER_QUERY: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_search_customer_query)],
+        },
+        fallbacks=[MessageHandler(filters.Text(["❌ Cancel", "🔙 Back to Main Menu"]), receive_search_customer_query)]
+    )
+
     # ATTACH EVERYTHING
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(add_item_wizard)
@@ -103,7 +154,11 @@ if __name__ == '__main__':
     app.add_handler(delete_item_wizard)
     app.add_handler(rename_store_wizard)
     app.add_handler(delete_store_wizard)
+    app.add_handler(edit_debt_limit_wizard)
     app.add_handler(ai_scanner_wizard)
+    app.add_handler(add_utang_wizard)
+    app.add_handler(record_payment_wizard)
+    app.add_handler(search_customer_wizard)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_ui_clicks))
     
     print("🤖 Bot is securely online! Open Telegram to test it.")
