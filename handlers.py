@@ -2,16 +2,18 @@ from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import ContextTypes, ConversationHandler
 import os
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from config import MAINTENANCE_MODE, supabase
-from menus import get_main_menu, get_inventory_menu, get_sales_menu, get_utang_menu, get_settings_menu
+from menus import get_main_menu, get_inventory_menu, get_sales_menu, get_sales_report_menu, get_utang_menu, get_settings_menu
 from ai_scanner import analyze_receipt
 
 # -----------------------------------
 # THE WIZARD STATES
 # -----------------------------------
-CATEGORY, ITEM_NAME, QUANTITY, PRICE, SALE_ITEM, SALE_QUANTITY, EDIT_SEARCH, EDIT_CHOOSE_FIELD, EDIT_NEW_VALUE, DELETE_SEARCH, DELETE_CONFIRM, RENAME_STORE, AI_PHOTO, AI_CONFIRM, DELETE_STORE, UTANG_CUSTOMER, UTANG_CONTACT, UTANG_ITEM, UTANG_QTY, UTANG_CART_ACTION, UTANG_NOTES, PAYMENT_CUSTOMER, PAYMENT_AMOUNT, SEARCH_CUSTOMER_QUERY, EDIT_DEBT_LIMIT = range(25)
+CATEGORY, ITEM_NAME, QUANTITY, PRICE, SALE_ITEM, SALE_QUANTITY, EDIT_SEARCH, EDIT_CHOOSE_FIELD, EDIT_NEW_VALUE, DELETE_SEARCH, DELETE_CONFIRM, RENAME_STORE, AI_PHOTO, AI_CONFIRM, DELETE_STORE, UTANG_CUSTOMER, UTANG_CONTACT, UTANG_ITEM, UTANG_QTY, UTANG_CART_ACTION, UTANG_NOTES, PAYMENT_CUSTOMER, PAYMENT_AMOUNT, SEARCH_CUSTOMER_QUERY, EDIT_DEBT_LIMIT, GET_STARTING_POT, GET_ACTUAL_CASH, GET_AUDIT_NOTES = range(28)
+
+PHT = timezone(timedelta(hours=8))
 
 
 def _format_currency(value):
@@ -45,6 +47,203 @@ def _clear_credit_context(context: ContextTypes.DEFAULT_TYPE):
         "payment_candidates",
     ]:
         context.user_data.pop(key, None)
+
+
+def _now_pht():
+    return datetime.now(PHT)
+
+
+def _parse_pht_datetime(value):
+    parsed = _parse_iso_datetime(value)
+    if parsed is None:
+        return None
+    return parsed.astimezone(PHT)
+
+
+def _sales_rows_for_store(telegram_id):
+    response = supabase.table("sales_log").select("*").eq("telegram_id", telegram_id).execute()
+    return response.data or []
+
+
+def _inventory_rows_for_store(telegram_id):
+    response = supabase.table("inventory").select("item_name, quantity, wholesale_price, retail_price").eq("telegram_id", telegram_id).execute()
+    return response.data or []
+
+
+def _sales_rows_for_date(telegram_id, target_date, payment_type=None):
+    rows = []
+    for row in _sales_rows_for_store(telegram_id):
+        sale_dt = _parse_pht_datetime(row.get("sale_date"))
+        if not sale_dt or sale_dt.date() != target_date:
+            continue
+        if payment_type and row.get("payment_type") != payment_type:
+            continue
+        rows.append(row)
+    return rows
+
+
+def _inventory_wholesale_map(telegram_id):
+    return {
+        row.get("item_name"): float(row.get("wholesale_price") or 0)
+        for row in _inventory_rows_for_store(telegram_id)
+        if row.get("item_name")
+    }
+
+
+def _summarize_sales_rows(sales_rows, wholesale_map):
+    total_cash = 0.0
+    total_credit = 0.0
+    total_revenue = 0.0
+    total_profit = 0.0
+    item_totals = {}
+
+    for row in sales_rows:
+        amount = float(row.get("total_amount") or 0)
+        qty = int(row.get("quantity_sold") or 0)
+        item_name = row.get("item_name") or "Unknown"
+        payment_type = (row.get("payment_type") or "Cash").strip().lower()
+
+        total_revenue += amount
+        if payment_type == "credit":
+            total_credit += amount
+        else:
+            total_cash += amount
+
+        cogs = wholesale_map.get(item_name, 0.0) * qty
+        total_profit += amount - cogs
+
+        if item_name not in item_totals:
+            item_totals[item_name] = {"quantity": 0, "revenue": 0.0}
+        item_totals[item_name]["quantity"] += qty
+        item_totals[item_name]["revenue"] += amount
+
+    top_items = sorted(item_totals.items(), key=lambda pair: (pair[1]["quantity"], pair[1]["revenue"]), reverse=True)
+
+    return {
+        "cash": total_cash,
+        "credit": total_credit,
+        "revenue": total_revenue,
+        "profit": total_profit,
+        "count": len(sales_rows),
+        "top_items": top_items,
+    }
+
+
+def _audit_summary_message(starting_pot, cash_sales, expected_cash, actual_cash, discrepancy, notes):
+    status_emoji = "🟢" if discrepancy == 0 else "🚨" if discrepancy < 0 else "🟡"
+    status_text = (
+        "PERFECTLY RECONCILED"
+        if discrepancy == 0
+        else "CASH SHORTAGE (LEAKAGE)"
+        if discrepancy < 0
+        else "OVER-CASH DISCREPANCY"
+    )
+    notes_text = notes if notes else "None"
+    return (
+        f"🔒 STORE DRAWER AUDIT COMPLETE\n"
+        f"📅 Date: {datetime.now(PHT).strftime('%B %d, %Y')}\n"
+        f"─────────────────────────\n"
+        f"📥 Starting Change Pot: {_format_currency(starting_pot)}\n"
+        f"📈 Expected Cash Sales: {_format_currency(cash_sales)}\n"
+        f"💵 Conceptual Total: {_format_currency(expected_cash)}\n"
+        f"─────────────────────────\n"
+        f"🔎 Actual Cash Counted: {_format_currency(actual_cash)}\n"
+        f"{status_emoji} Status: {status_text}\n"
+        f"📊 Discrepancy: {_format_currency(discrepancy)}\n"
+        f"─────────────────────────\n"
+        f"📝 Audit Note: {notes_text}\n"
+        f"─────────────────────────\n"
+        f"Excellent! Your EOD numbers are secured."
+    )
+
+
+def _sales_report_message(telegram_id, report_date):
+    wholesale_map = _inventory_wholesale_map(telegram_id)
+    rows = _sales_rows_for_date(telegram_id, report_date)
+    summary = _summarize_sales_rows(rows, wholesale_map)
+    yesterday_summary = _summarize_sales_rows(_sales_rows_for_date(telegram_id, report_date - timedelta(days=1)), wholesale_map)
+
+    lines = [
+        f"📊 SALES REPORT: {report_date.strftime('%B %d, %Y')}",
+        "─────────────────────────",
+        f"💰 Total Cash in Drawer: {_format_currency(summary['cash'])}",
+        f"📝 Uncollected Credit (Utang): {_format_currency(summary['credit'])}",
+        f"📈 Total Gross Revenue: {_format_currency(summary['revenue'])}",
+        f"✨ Estimated Profit (Tubo): {_format_currency(summary['profit'])}",
+        f"🧾 Total Transactions: {summary['count']} sales logged",
+    ]
+
+    if yesterday_summary["revenue"] > 0:
+        dod = ((summary["revenue"] - yesterday_summary["revenue"]) / yesterday_summary["revenue"]) * 100
+        direction = "up" if dod >= 0 else "down"
+        lines.append(f"📊 DoD Performance: {dod:.2f}% {direction} vs previous day")
+    else:
+        lines.append("📊 DoD Performance: Baseline unavailable (no sales on previous day)")
+
+    lines.append("─────────────────────────")
+    if not rows:
+        lines.append("No sales were recorded on this day.")
+    else:
+        top_items = summary["top_items"][:5]
+        if top_items:
+            lines.append("🏆 Top Items:")
+            for idx, (item_name, stats) in enumerate(top_items, start=1):
+                lines.append(f"{idx}. {item_name} — {int(stats['quantity'])} pcs | {_format_currency(stats['revenue'])}")
+
+        out_of_stock = [row for row in _inventory_rows_for_store(telegram_id) if int(row.get("quantity") or 0) <= 0]
+        lines.append(f"🚨 Out-of-Stock Items: {len(out_of_stock)}")
+
+    return "\n".join(lines)
+
+
+async def _send_audit_actual_cash_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    expected_cash = context.user_data["starting_pot"] + context.user_data["today_cash_sales"]
+    context.user_data["expected_cash"] = expected_cash
+    await update.effective_message.reply_text(
+        f"📝 Starting Pot: {_format_currency(context.user_data['starting_pot'])}\n"
+        f"📈 Logged Today's Cash Sales: {_format_currency(context.user_data['today_cash_sales'])}\n"
+        f"💰 Expected Cash in Drawer: {_format_currency(expected_cash)}\n\n"
+        "Now, count all physical paper bills and coins currently inside your drawer.\n"
+        "Enter the total counted amount (Actual Cash in hand):",
+        reply_markup=ReplyKeyboardMarkup([["❌ Cancel Audit"]], resize_keyboard=True),
+    )
+
+
+async def _save_daily_audit(update: Update, context: ContextTypes.DEFAULT_TYPE, notes):
+    user_id = update.effective_user.id
+    try:
+        supabase.table("daily_drawer_audits").insert({
+            "telegram_id": user_id,
+            "starting_drawer_pot": context.user_data["starting_pot"],
+            "expected_cash": context.user_data["expected_cash"],
+            "actual_cash_counted": context.user_data["actual_cash"],
+            "discrepancy": context.user_data["discrepancy"],
+            "audit_notes": notes,
+        }).execute()
+
+        summary = _audit_summary_message(
+            context.user_data["starting_pot"],
+            context.user_data["today_cash_sales"],
+            context.user_data["expected_cash"],
+            context.user_data["actual_cash"],
+            context.user_data["discrepancy"],
+            notes,
+        )
+        await update.effective_message.reply_text(summary, reply_markup=get_sales_menu())
+    except Exception as e:
+        await update.effective_message.reply_text(f"❌ Error saving audit to database: {str(e)}")
+    finally:
+        context.user_data.pop("starting_pot", None)
+        context.user_data.pop("today_cash_sales", None)
+        context.user_data.pop("expected_cash", None)
+        context.user_data.pop("actual_cash", None)
+        context.user_data.pop("discrepancy", None)
+
+
+async def cancel_daily_audit(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data.clear()
+    await update.effective_message.reply_text("❌ Audit cancelled.", reply_markup=get_sales_menu())
+    return ConversationHandler.END
 
 # ==========================================
 # 1. THE MANUAL ADD WIZARD
@@ -1171,6 +1370,181 @@ async def view_active_debts(update: Update, context: ContextTypes.DEFAULT_TYPE):
         print(f"View active debts error: {e}")
         await update.message.reply_text("⚠️ Server Error while loading active debts.", reply_markup=get_utang_menu())
 
+
+# ==========================================
+# 8A. SALES REPORTING & DAILY AUDIT HANDLERS
+# ==========================================
+async def handle_view_sales_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "📊 Sales Reporting Portal\n\nSelect the type of report summary you would like to run:",
+        reply_markup=get_sales_report_menu(),
+    )
+
+
+async def process_report_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_text = (update.message.text or "").strip()
+    user_id = update.effective_user.id
+    today = _now_pht().date()
+
+    if user_text == "☀️ Today's Drawer Summary":
+        await update.message.reply_text(_sales_report_message(user_id, today), reply_markup=get_sales_report_menu())
+
+    elif user_text == "📅 Lookup a Day":
+        context.user_data["awaiting_sales_report_date"] = True
+        await update.message.reply_text(
+            "📅 Type the day you want to look up in `YYYY-MM-DD` format.\n\nExample: 2026-05-27\n\nSend ❌ Cancel to stop.",
+            reply_markup=ReplyKeyboardMarkup([ ["❌ Cancel", "🔙 Back to Sales Menu"] ], resize_keyboard=True),
+        )
+
+    elif user_text == "📊 View Dashboard":
+        base_url = "http://localhost:8501"
+        magic_link = f"{base_url}/?store_id={user_id}"
+        reply_msg = (
+            "📊 Your Personal Dashboard is ready!\n\n"
+            "Click the secure link below to view your real-time store analytics:\n"
+            f"👉 {magic_link}\n\n"
+            "(Do not share this link with anyone!)"
+        )
+        await update.message.reply_text(reply_msg, reply_markup=get_sales_report_menu())
+
+    elif user_text == "🚨 Critical Out-Of-Stock":
+        inventory_rows = _inventory_rows_for_store(user_id)
+        out_of_stock = [row for row in inventory_rows if int(row.get("quantity") or 0) <= 0]
+        if not out_of_stock:
+            text = "🚨 Critical Out-Of-Stock\n\nAll stock levels are healthy. No items are out of stock right now."
+        else:
+            lines = ["🚨 CRITICAL OUT-OF-STOCK", "─────────────────────────", "These items need replenishment:"]
+            for idx, item in enumerate(out_of_stock, start=1):
+                lines.append(f"{idx}. {item['item_name']} (0 pcs remaining)")
+            text = "\n".join(lines)
+        await update.message.reply_text(text, reply_markup=get_sales_report_menu())
+
+    elif user_text == "🔙 Back to Sales Menu":
+        context.user_data.pop("awaiting_sales_report_date", None)
+        await update.message.reply_text("🏠 Returning to Sales Menu...", reply_markup=get_sales_menu())
+
+    else:
+        await update.message.reply_text("⚠️ Unknown report request.", reply_markup=get_sales_report_menu())
+
+
+async def process_custom_sales_report_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = (update.message.text or "").strip()
+    if text == "❌ Cancel":
+        context.user_data.pop("awaiting_sales_report_date", None)
+        await update.message.reply_text("❌ Report lookup cancelled.", reply_markup=get_sales_report_menu())
+        return ConversationHandler.END
+    if text == "🔙 Back to Main Menu":
+        context.user_data.pop("awaiting_sales_report_date", None)
+        await update.message.reply_text("🏠 Returning to Main Menu...", reply_markup=get_main_menu())
+        return ConversationHandler.END
+    if text == "🔙 Back to Sales Menu":
+        context.user_data.pop("awaiting_sales_report_date", None)
+        await update.message.reply_text("🏠 Returning to Sales Menu...", reply_markup=get_sales_menu())
+        return ConversationHandler.END
+
+    try:
+        report_date = datetime.strptime(text, "%Y-%m-%d").date()
+    except ValueError:
+        await update.message.reply_text("⚠️ Please enter a valid date in YYYY-MM-DD format, for example 2026-05-27.")
+        return ConversationHandler.END
+
+    context.user_data.pop("awaiting_sales_report_date", None)
+    await update.message.reply_text(_sales_report_message(update.effective_user.id, report_date), reply_markup=get_sales_report_menu())
+    return ConversationHandler.END
+
+
+async def start_daily_audit(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data.clear()
+    user_id = update.effective_user.id
+    today_cash_rows = _sales_rows_for_date(user_id, _now_pht().date(), payment_type="Cash")
+    today_cash_sales = sum(float(row.get("total_amount") or 0) for row in today_cash_rows)
+    context.user_data["today_cash_sales"] = today_cash_sales
+
+    keyboard = ReplyKeyboardMarkup(
+        [["💵 Use Default ₱500"], ["❌ Cancel Audit"]],
+        resize_keyboard=True,
+    )
+
+    await update.message.reply_text(
+        "🔒 [Daily Cash Drawer Audit]\nLet's reconcile today's cash ledger.\n\n"
+        "Please enter your Starting Change Pot (base barya pot for the day, e.g., 500.00):",
+        reply_markup=keyboard,
+    )
+    return GET_STARTING_POT
+
+
+async def process_starting_pot(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    input_text = (update.message.text or "").strip()
+    if input_text == "💵 Use Default ₱500":
+        context.user_data["starting_pot"] = 500.0
+        await _send_audit_actual_cash_prompt(update, context)
+        return GET_ACTUAL_CASH
+    if input_text == "❌ Cancel Audit":
+        context.user_data.clear()
+        await update.message.reply_text("❌ Audit cancelled.", reply_markup=get_sales_menu())
+        return ConversationHandler.END
+
+    try:
+        starting_pot = float(input_text)
+        if starting_pot < 0:
+            raise ValueError
+    except ValueError:
+        await update.message.reply_text("❌ Please enter a valid positive starting change pot amount (e.g., 500):")
+        return GET_STARTING_POT
+
+    context.user_data["starting_pot"] = starting_pot
+    await _send_audit_actual_cash_prompt(update, context)
+    return GET_ACTUAL_CASH
+
+
+async def process_actual_cash(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    input_text = (update.message.text or "").strip()
+    if input_text == "❌ Cancel Audit":
+        context.user_data.clear()
+        await update.message.reply_text("❌ Audit cancelled.", reply_markup=get_sales_menu())
+        return ConversationHandler.END
+
+    try:
+        actual_cash = float(input_text)
+        if actual_cash < 0:
+            raise ValueError
+    except ValueError:
+        await update.message.reply_text("❌ Please enter a valid positive counted cash amount:")
+        return GET_ACTUAL_CASH
+
+    context.user_data["actual_cash"] = actual_cash
+    expected_cash = context.user_data["starting_pot"] + context.user_data["today_cash_sales"]
+    context.user_data["expected_cash"] = expected_cash
+    discrepancy = actual_cash - expected_cash
+    context.user_data["discrepancy"] = discrepancy
+
+    keyboard = ReplyKeyboardMarkup(
+        [["⏩ Skip Notes", "❌ Cancel Audit"]],
+        resize_keyboard=True,
+    )
+
+    await update.message.reply_text(
+        f"Calculated Discrepancy: {_format_currency(discrepancy)}\n\n"
+        "📝 Add Audit Notes / Remarks:\n"
+        "Enter any notes (e.g., 'Ate 2 eggs for lunch', 'Gave 50 pesos to pamangkin for school project'):",
+        reply_markup=keyboard,
+    )
+    return GET_AUDIT_NOTES
+
+
+async def process_audit_notes(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    notes_input = (update.message.text or "").strip()
+    if notes_input == "⏩ Skip Notes":
+        await _save_daily_audit(update, context, None)
+        return ConversationHandler.END
+    if notes_input == "❌ Cancel Audit":
+        context.user_data.clear()
+        await update.message.reply_text("❌ Audit cancelled.", reply_markup=get_sales_menu())
+        return ConversationHandler.END
+
+    await _save_daily_audit(update, context, notes_input or None)
+    return ConversationHandler.END
+
 # ==========================================
 # 9. THE NORMAL MENU BUTTONS
 # ==========================================
@@ -1206,6 +1580,10 @@ async def handle_ui_clicks(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_text = update.message.text
     user_id = update.message.from_user.id 
+
+    if context.user_data.get("awaiting_sales_report_date"):
+        await process_custom_sales_report_date(update, context)
+        return
 
     if user_text == "📦 Inventory":
         await update.message.reply_text("📦 Inventory Dashboard", reply_markup=get_inventory_menu())
@@ -1262,7 +1640,11 @@ async def handle_ui_clicks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(reply_msg, reply_markup=get_main_menu())
 
     elif user_text == "📈 View Sales Report":
-        await update.message.reply_text("(Feature Coming Soon)")
+        await handle_view_sales_report(update, context)
+    elif user_text == "🔒 Close & Audit":
+        await start_daily_audit(update, context)
+    elif user_text in {"☀️ Today's Drawer Summary", "📅 Lookup a Day", "📊 View Dashboard", "🚨 Critical Out-Of-Stock", "🔙 Back to Sales Menu"}:
+        await process_report_selection(update, context)
     elif user_text == "📋 View Active Debts":
         await view_active_debts(update, context)
         
