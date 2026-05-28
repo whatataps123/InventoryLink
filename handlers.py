@@ -1870,7 +1870,7 @@ async def process_report_selection(update: Update, context: ContextTypes.DEFAULT
         )
 
     elif user_text == "📊 View Dashboard":
-        base_url = "http://localhost:8501"
+        base_url = "https://inventorylink-dashboard.streamlit.app"
         magic_link = f"{base_url}/?store_id={user_id}"
         reply_msg = (
             "📊 Your Personal Dashboard is ready!\n\n"
