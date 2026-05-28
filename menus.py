@@ -13,6 +13,7 @@ def get_main_menu():
 def get_settings_menu():
     keyboard = [
         ["🏷️ Rename Store", "🧾 Delete Store"],
+        ["⏱️ Edit Debt Limit (Days)"],
         ["🔙 Back to Main Menu"]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
@@ -35,6 +36,7 @@ def get_sales_menu():
 def get_utang_menu():
     keyboard = [
         ["➕ Add New Utang", "💳 Record Payment"],
+        ["📋 View Active Debts", "🔍 Search Customer"],
         ["🔙 Back to Main Menu"]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)

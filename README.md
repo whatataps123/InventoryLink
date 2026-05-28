@@ -137,7 +137,7 @@ InventoryLink/
 ---
 
 ## 🔮 Roadmap / Future Features
-- [ ] **Utang (Credit) System:** Allow owners to track customer debt and record payments.
+- [x] **Utang (Credit) System:** Track customer debt, record payments, and view customer credit timelines.
 - [ ] **Low Stock Alerts:** Automated Telegram push notifications when an item drops below 5 pieces.
 - [ ] **Data Export:** 1-click CSV/Excel export for accountants via the Streamlit dashboard.
 
