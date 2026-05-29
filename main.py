@@ -1,3 +1,7 @@
+import threading
+from http.server import SimpleHTTPRequestHandler, HTTPServer
+import os
+
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ConversationHandler, AIORateLimiter
 from config import TELEGRAM_TOKEN
 from handlers import (
@@ -21,7 +25,7 @@ from handlers import (
     receive_category_add_name, receive_category_rename_target,
     receive_category_rename_value, receive_category_delete_target,
     delete_store_start, receive_delete_store_confirm,
-    ai_add_start, receive_ai_photo, confirm_ai_add, # <-- NEW AI IMPORTS
+    ai_add_start, receive_ai_photo, confirm_ai_add,
     CATEGORY, ITEM_NAME, QUANTITY, PRICE, SALE_ITEM, SALE_QUANTITY, 
     EDIT_SEARCH, EDIT_CHOOSE_FIELD, EDIT_NEW_VALUE, DELETE_SEARCH, DELETE_CONFIRM, RENAME_STORE,
     AI_PHOTO, AI_CONFIRM, DELETE_STORE,
@@ -33,8 +37,30 @@ from handlers import (
     GET_STARTING_POT, GET_ACTUAL_CASH, GET_AUDIT_NOTES
 )
 
+# ==========================================
+# 🌐 THE DUMMY SERVER (FIXES RENDER PORT TIMEOUT)
+# ==========================================
+def run_dummy_server():
+    class HealthCheckHandler(SimpleHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("Content-type", "text/plain")
+            self.end_headers()
+            self.wfile.write(b"Bot is alive and healthy!")
+
+    # Grab the port Render expects, or default to 10000
+    port = int(os.environ.get("PORT", 10000))
+    server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
+    print(f"🌍 Dummy Web Server listening on port {port}...")
+    server.serve_forever()
+
+
 if __name__ == '__main__':
     print("🚀 Starting Secured InventoryLink Bot...")
+    
+    # 1. Start the dummy web server in the background FIRST
+    server_thread = threading.Thread(target=run_dummy_server, daemon=True)
+    server_thread.start()
     
     # ==========================================
     # 🛡️ THE SECURITY UPDATE
@@ -140,18 +166,17 @@ if __name__ == '__main__':
         fallbacks=[MessageHandler(filters.Text(["❌ Cancel", "🔙 Back to Settings"]), process_category_action)]
     )
 
-    # 6. AI SCANNER WIZARD
+    # 8. AI SCANNER WIZARD
     ai_scanner_wizard = ConversationHandler(
         entry_points=[MessageHandler(filters.Text(["📸 Add via AI (Photo)"]), ai_add_start)],
         states={
-            # Notice we use filters.PHOTO here so it explicitly waits for an image!
             AI_PHOTO: [MessageHandler(filters.PHOTO | filters.TEXT & ~filters.COMMAND, receive_ai_photo)],
             AI_CONFIRM: [MessageHandler(filters.TEXT & ~filters.COMMAND, confirm_ai_add)],
         },
         fallbacks=[MessageHandler(filters.Text(["❌ Cancel"]), confirm_ai_add)]
     )
 
-    # 7. ADD NEW UTANG WIZARD
+    # 9. ADD NEW UTANG WIZARD
     add_utang_wizard = ConversationHandler(
         entry_points=[MessageHandler(filters.Text(["➕ Add New Utang"]), add_utang_start)],
         states={
@@ -165,7 +190,7 @@ if __name__ == '__main__':
         fallbacks=[MessageHandler(filters.Text(["❌ Cancel", "🔙 Back to Main Menu"]), receive_utang_notes)]
     )
 
-    # 8. RECORD PAYMENT WIZARD
+    # 10. RECORD PAYMENT WIZARD
     record_payment_wizard = ConversationHandler(
         entry_points=[MessageHandler(filters.Text(["💳 Record Payment"]), record_payment_start)],
         states={
@@ -175,7 +200,7 @@ if __name__ == '__main__':
         fallbacks=[MessageHandler(filters.Text(["❌ Cancel", "🔙 Back to Main Menu"]), receive_payment_amount)]
     )
 
-    # 9. SEARCH CUSTOMER WIZARD
+    # 11. SEARCH CUSTOMER WIZARD
     search_customer_wizard = ConversationHandler(
         entry_points=[MessageHandler(filters.Text(["🔍 Search Customer"]), search_customer_start)],
         states={
@@ -184,7 +209,7 @@ if __name__ == '__main__':
         fallbacks=[MessageHandler(filters.Text(["❌ Cancel", "🔙 Back to Main Menu"]), receive_search_customer_query)]
     )
 
-    # 10. DAILY AUDIT WIZARD
+    # 12. DAILY AUDIT WIZARD
     audit_wizard = ConversationHandler(
         entry_points=[MessageHandler(filters.Text(["🔒 Close & Audit"]), start_daily_audit)],
         states={
